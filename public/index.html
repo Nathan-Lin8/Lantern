@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#1f1b24">
+  <title>Lantern Wall</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Caveat:wght@600&family=Figtree:wght@400;500;600&family=Fraunces:opsz,wght@9..144,600&display=swap">
+  <link rel="stylesheet" href="controller.css">
+</head>
+<body>
+  <div class="app">
+
+    <!-- Screen 1: the wall -->
+    <section class="screen" id="screen-wall">
+      <header class="bar">
+        <h1 class="brand">Lantern Wall</h1>
+        <div class="conn" id="conn"><i></i><span>Connecting…</span></div>
+      </header>
+      <p class="prompt">Please select a lantern</p>
+      <div class="wall-wrap" id="wallWrap">
+        <div class="wall" id="wall"></div>
+      </div>
+    </section>
+
+    <!-- Screen 2: editor -->
+    <section class="screen" id="screen-editor" hidden>
+      <header class="bar">
+        <button type="button" class="btn ghost" id="back">← Wall</button>
+        <h2 class="ed-title" id="edTitle">Lantern 1</h2>
+        <button type="button" class="btn primary" id="send">Send to wall</button>
+      </header>
+
+      <div class="ed-body">
+        <div class="stage" id="stage">
+          <div class="frame" id="frame">
+            <canvas id="bg"></canvas>
+            <canvas id="ink"></canvas>
+          </div>
+          <p class="hint" id="hint"></p>
+        </div>
+
+        <aside class="tools">
+          <!-- A: draw -->
+          <div class="panel" id="tools-draw" hidden>
+            <div class="group">
+              <span class="label">Ink</span>
+              <div class="swatches" id="inkSw"></div>
+            </div>
+            <div class="group">
+              <span class="label">Brush size</span>
+              <div class="row">
+                <input type="range" id="size" min="4" max="60" value="16" aria-label="Brush size">
+                <span class="size-dot"><i id="sizeDot"></i></span>
+              </div>
+            </div>
+            <div class="row">
+              <button type="button" class="chip" id="eraser" aria-pressed="false">Eraser</button>
+              <button type="button" class="chip" id="undo">Undo</button>
+              <button type="button" class="chip" id="clearDraw">Clear</button>
+            </div>
+          </div>
+
+          <!-- B: text -->
+          <div class="panel" id="tools-text" hidden>
+            <div class="group">
+              <label class="label" for="txt">Your message</label>
+              <textarea id="txt" rows="3" maxlength="120" placeholder="Type something for the wall"></textarea>
+            </div>
+            <div class="group">
+              <span class="label">Font</span>
+              <div class="row" id="fontChips"></div>
+            </div>
+            <div class="group">
+              <span class="label">Text size</span>
+              <input type="range" id="tsize" min="32" max="180" value="96" aria-label="Text size">
+            </div>
+            <div class="group">
+              <span class="label">Text color</span>
+              <div class="swatches" id="textSw"></div>
+            </div>
+            <div class="row">
+              <button type="button" class="chip" id="clearText">Clear</button>
+            </div>
+          </div>
+
+          <!-- C: light -->
+          <div class="panel" id="tools-color" hidden>
+            <div class="group">
+              <span class="label">Light color</span>
+              <div class="swatches big" id="glowSw"></div>
+            </div>
+            <div class="group">
+              <span class="label">Custom</span>
+              <label class="custom">
+                <input type="color" id="customGlow" value="#b58cff" aria-label="Pick a custom light color">
+                <span>Pick any color</span>
+              </label>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </div>
+
+  <!-- Mode chooser -->
+  <div class="modal-back" id="chooser" hidden>
+    <div class="modal" role="dialog" aria-labelledby="chooserTitle">
+      <div class="modal-head">
+        <canvas class="mini" id="chooserMini"></canvas>
+        <div>
+          <h2 id="chooserTitle">Lantern 1</h2>
+          <p>What do you want to do?</p>
+        </div>
+      </div>
+      <div class="choices">
+        <button type="button" data-mode="draw"><span class="letter">A</span><b>Draw on it</b><span>Finger or Apple Pencil</span></button>
+        <button type="button" data-mode="text"><span class="letter">B</span><b>Add text</b><span>Type a short message</span></button>
+        <button type="button" data-mode="color"><span class="letter">C</span><b>Change the light</b><span>Pick a color</span></button>
+      </div>
+      <p class="chooser-note" id="chooserNote" hidden>This lantern can only change its light.</p>
+      <button type="button" class="btn ghost" id="chooserCancel">Cancel</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="shared.js"></script>
+  <script src="controller.js"></script>
+</body>
+</html>
