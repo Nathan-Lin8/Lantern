@@ -1,0 +1,8 @@
+# Netlify: deploy the site/ folder as-is (no build step)
+[build]
+  publish = "site"
+
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

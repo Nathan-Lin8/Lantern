@@ -2,117 +2,138 @@
 
 An iPad controller and a projector display for an interactive lantern wall.
 
-- **Controller** (`/`): visitors see the wall, get "Please select a lantern", then pick
-  **A** draw on it, **B** add text, or **C** change the light.
-- **Backend** (`server.js`): stores each lantern's light color and its latest drawing as a
-  transparent PNG, and pushes every change to all screens over a WebSocket.
-- **Projector** (`/projector.html`): full-screen black canvas that draws each lantern's color
-  and PNG at its calibrated spot, cross-fading updates in as they arrive.
+- **Controller** (`site/index.html`): visitors pick a lantern, then **A** draw on it,
+  **B** add text, or **C** change the light. Round and oval lanterns only get **C**.
+- **Projector** (`site/projector.html`): black full-screen page that draws each lantern's light
+  and drawing at its spot on the wall. Updates fade in live.
+- **Netlify** hosts the pages. **Supabase** stores the lanterns, the drawings (as PNGs), and pushes
+  every change to the projector instantly. There's no server of your own to run.
 
-## Run it
+## One-time setup (about 15 minutes)
 
-Needs Node 18 or newer.
+### 1. Supabase
 
-```bash
-npm install
-npm start
-```
+1. Create a free project at [supabase.com](https://supabase.com).
+2. Open `supabase/setup.sql` and change the two access codes near the top:
+   - `controller_code`: what the iPad needs. Teammates will use this.
+   - `admin_code`: what the projector needs for calibration and resets. Keep this one to yourself.
+3. In Supabase go to **SQL Editor → New query**, paste the whole file, and click **Run**.
+   It creates the lanterns table, the image bucket, live updates, and the permissions.
+4. Go to **Project Settings → API** (or the **Connect** button) and copy the **Project URL** and the
+   **anon public** key.
 
-The terminal prints the addresses, for example:
+### 2. Config
 
-```
-Controller (iPad):  http://192.168.1.20:3000/
-Projector:          http://192.168.1.20:3000/projector.html
-```
-
-1. On the laptop connected to the projector, open the **Projector** URL in Chrome and press
-   `F` for full screen.
-2. On the iPad (same Wi-Fi), open the **Controller** URL in Safari. Tap Share → Add to Home
-   Screen so it opens full screen without the Safari bars.
-
-## Line the projection up with the real lanterns
-
-On the projector page press `C`. Every lantern shows as a numbered box.
-
-- Drag a box onto its physical lantern.
-- Drag the bottom-right corner to resize it.
-- Arrow keys nudge the selected box (hold Shift for bigger steps).
-- Press `S` to save, then `C` to exit.
-
-Positions are saved in `data/state.json`, so they survive restarts.
-
-## How a send works
-
-| Mode | Request | What the projector does |
-|---|---|---|
-| A Draw / B Text | `PUT /api/lanterns/:id/image` with the PNG as the body (`Content-Type: image/png`) | Loads the new PNG and fades it in on that lantern |
-| A / B with an empty canvas | `DELETE /api/lanterns/:id/image` | Removes the drawing, keeps the light |
-| C Light | `PUT /api/lanterns/:id/color` with `{ "color": "#ff8800" }` or `{ "color": "off" }` | Fades the lantern to the new color |
-
-Text is rendered to a PNG on the iPad, so the projector only ever deals with images and colors.
-PNGs have a transparent background and match the lantern body's proportions (longest side 1200 px).
-
-Other endpoints:
-
-- `GET /api/state` — every lantern's color, image URL and positions
-- `PUT /api/layout` — save projector positions (the calibration screen uses this)
-- `POST /api/reset` — clear all drawings and colors but keep the calibration
-
-Try it from a terminal:
-
-```bash
-curl -X PUT localhost:3000/api/lanterns/2/color -H 'Content-Type: application/json' -d '{"color":"#e0453a"}'
-curl -X POST localhost:3000/api/reset
-```
-
-## Lantern shapes and layout
-
-Every lantern is oblong and drawn in full: hanger ring, gold top cap, paper body with ribs, gold
-bottom cap and a tassel that matches the light. Drawings and text go on the body only.
-
-| Shape | Look | Draw / text | Light color |
-|---|---|---|---|
-| `oval` | Swollen in the middle, vertical ribs | Yes | Yes |
-| `barrel` | Nearly straight sides, horizontal ribs | Yes | Yes |
-
-To match your physical wall, edit the `LAYOUT` list at the top of `server.js`:
+Paste those two values into `site/config.js`:
 
 ```js
-{ shape: 'oval', cx: 0.385, cy: 0.314, size: 0.097, aspect: 0.68, color: '#ec6f86' }
+window.LANTERN_CONFIG = {
+  supabaseUrl: 'https://abcdefgh.supabase.co',
+  supabaseAnonKey: 'eyJhbGciOi...',
+  bucket: 'lanterns'
+};
 ```
 
-- `cx`, `cy`: center of the whole lantern, 0 to 1 across and down the wall
-- `size`: body width as a fraction of the wall width
-- `aspect`: body width ÷ height (0.68 for a plump oval, 0.6 for a tall barrel)
+The anon key is meant to be public. Anyone can *see* the wall, but writing needs an access code,
+which is checked inside the database.
 
-The default layout is two staggered rows of six. Sizes vary a little, and each row rises and falls
-in a gentle wave, with the bottom row out of step with the top.
+### 3. Netlify
 
-Drawings are exported at the body's own proportions, so a plump lantern gets a wider canvas.
+Pick one:
 
-After editing, delete `data/state.json` and restart. (Bumping `STATE_VERSION` in `server.js` does the
-same thing automatically.) Then fine-tune the projector positions with calibration mode. Each
-calibration box covers the whole lantern, from the hanger ring to the bottom of the tassel.
+- **Drag and drop:** at [app.netlify.com/drop](https://app.netlify.com/drop), drag the `site` folder in.
+  To update later, open the site in Netlify → **Deploys** → drag the folder again.
+- **From GitHub:** push this repo, then **Add new site → Import from Git**. `netlify.toml` already
+  tells Netlify to publish `site/` with no build step. Every push redeploys.
+
+You'll get a URL like `https://lantern-wall.netlify.app`.
+
+### 4. Calibrate once
+
+1. On the projector laptop, open `https://YOUR-SITE.netlify.app/projector.html?admin=YOUR-ADMIN-CODE`.
+   The code in the link is remembered on that laptop, then removed from the address bar.
+2. Press `F` for full screen, then `C` to calibrate.
+3. Drag each shape onto its real lantern, and drag the white corner square to resize.
+   Arrow keys nudge the selected one (hold Shift for bigger steps).
+   If the panel is in the way, click **Move this panel**.
+4. Press `S` to save. Positions are stored in Supabase, so they survive restarts and redeploys.
+
+### 5. Set up the iPad
+
+Open `https://YOUR-SITE.netlify.app/?code=YOUR-CONTROLLER-CODE` in Safari, then tap
+**Share → Add to Home Screen**. The code is remembered, so the home-screen icon opens straight to the wall.
+
+## Links to give your team
+
+| Device | Link |
+|---|---|
+| Projector laptop | `https://YOUR-SITE.netlify.app/projector.html` |
+| iPad | `https://YOUR-SITE.netlify.app/?code=YOUR-CONTROLLER-CODE` |
+
+`TEAM-GUIDE.md` is a one-page version of this for teammates.
+
+## Changing the lanterns
+
+Edit `site/layout.js`. Each line is one lantern:
+
+```js
+{ shape: 'rect', cx: 0.45, cy: 0.69, size: 0.14, aspect: 0.75, color: '#f4a64a' }
+```
+
+| Field | Meaning |
+|---|---|
+| `shape` | `rect` or `square` can show drawings and text. `circle` or `oval` are light only. |
+| `cx`, `cy` | Center of the lantern, 0 to 1 across and down the wall |
+| `size` | Width as a fraction of the wall width |
+| `aspect` | Real width ÷ height: 1 for squares and circles, 0.75 for a tall 3:4 box, 1.33 for a wide one |
+| `color` | Starting light color, `#rrggbb` or `off` |
+
+Redeploy, then on the projector press `C` → **Reset to layout.js** (click twice to confirm).
+This replaces every lantern, so recalibrate afterward.
+
+## Admin tools (projector page, `C`)
+
+- **Save positions**: stores calibration.
+- **Clear all drawings**: wipes every drawing, keeps colors and positions. Good between sessions.
+- **Reset to layout.js**: rebuilds all lanterns from `layout.js`. Clears drawings and calibration.
+
+To change an access code, edit it in the "Access codes" block of `setup.sql` and run just that
+block in the SQL Editor. iPads with the old code will ask for the new one on their next send.
+
+## How it works
+
+| Action | What happens |
+|---|---|
+| Draw / text | The iPad renders a transparent PNG at the lantern's proportions, uploads it to the `lanterns` storage bucket, then calls `set_lantern_image` |
+| Clear and send | `set_lantern_image` with no image |
+| Change light | `set_lantern_color` |
+| Projector | Subscribes to changes on the `lanterns` table and fades each update in |
+
+All writes go through database functions that check the access code. The website can't edit the
+table directly or read the codes.
 
 ## Files
 
 ```
-server.js              Express + WebSocket backend
-public/index.html      iPad controller
-public/controller.css
-public/controller.js
-public/projector.html  Projector display + calibration
-public/projector.js
-public/shared.js       WebSocket reconnect, helpers, and the lantern drawing used by both screens
-data/                  Created on first run: state.json and images/
+site/                  what Netlify publishes
+  index.html           iPad controller
+  controller.js / .css
+  projector.html       projector display + calibration
+  projector.js
+  lw.js                Supabase connection, uploads, access codes
+  config.js            your Supabase URL + anon key
+  layout.js            the list of lanterns
+supabase/setup.sql     run once in the Supabase SQL Editor
+netlify.toml           tells Netlify to publish site/
+TEAM-GUIDE.md          one-page guide for the showcase
 ```
 
-## Notes for the real install
+## Good to know
 
-- The iPad page blocks scrolling, rubber-banding and pinch-zoom so the canvas stays still while
-  drawing. Once an Apple Pencil touches the screen, finger touches are ignored (palm rejection).
-- The controller returns to the wall after 90 seconds without a touch, so the next visitor
-  starts fresh. Change `IDLE_MS` in `controller.js`.
-- Calibration uses rectangles. If the projector hits the wall at an angle and the boxes look
-  skewed, the next step is a four-corner (perspective) warp per lantern.
-- There's no login. Keep it on a private network for the show.
+- **Free Supabase projects pause after about a week without use.** Open the site once in the days
+  before the showcase. If it's paused, the Supabase dashboard has a Restore button.
+- Both devices need internet. Campus Wi-Fi is fine, since nothing talks device to device.
+- Every send stores a new PNG, and old ones stay in the bucket. That's fine for a showcase. To
+  clean up, empty the `lanterns` bucket in Supabase **Storage** after running **Clear all drawings**.
+- Calibration uses rectangles. If the projector hits the wall at a steep angle, the next step is a
+  four-corner warp per lantern.
