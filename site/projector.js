@@ -1,15 +1,19 @@
 // Projector display: draws every lantern's light color + latest PNG at its calibrated spot.
-// Changes arrive live from Supabase and cross-fade in.
+// Changes arrive live from Supabase and cross-fade in with a sparkle rising from the bottom of the lantern.
+// Two looks, switched with D: 'detailed' draws full paper lanterns (for a wall without physical lanterns yet);
+// 'flat' fills only each face with flat bright color, keeping everything else black, for projecting onto real lanterns.
 (() => {
   const $ = s => document.querySelector(s);
   const canvas = $('#c');
   const ctx = canvas.getContext('2d');
 
-  const FADE_MS = 350;
+  const FADE_MS = 600;
 
-  // id -> { lantern, img, prev: { color, img } | null, t0 }
+  // id -> { lantern, img, prev: { color, img } | null, t0, burst }
   const views = new Map();
   const loadSeq = new Map();   // id -> latest update number, so a slow image load can't overwrite a newer one
+  const LOOK_KEY = 'lw-projector-look';
+  let detailed = (() => { try { return localStorage.getItem(LOOK_KEY) !== 'flat'; } catch { return true; } })();
   let calibrating = false, unlocked = false, selected = null, dragInfo = null, dirtyLayout = false;
 
   // ---------- Size ----------
@@ -52,10 +56,12 @@
 
     const current = views.get(l.id);
     const changed = !current || imageChanged || current.lantern.color !== l.color || current.lantern.shape !== l.shape;
+    const live = current && changed;    // a real change, not the first load
     views.set(l.id, {
       lantern: l, img,
-      prev: current && changed ? { color: current.lantern.color, img: current.img } : null,
-      t0: performance.now()
+      prev: live ? { color: current.lantern.color, img: current.img, art: current.art } : current?.prev || null,
+      t0: live || !current ? performance.now() : current.t0,
+      burst: live ? LanternArt.burst(l.shape, l.color) : current?.burst || null
     });
     notice('');
     requestDraw();
@@ -100,19 +106,29 @@
     return { x: r.x * canvas.width, y: r.y * canvas.height, w: r.w * canvas.width, h: r.h * canvas.height };
   }
 
-  function facePath(shape, R) {
-    ctx.beginPath();
-    if (shape === 'circle' || shape === 'oval') ctx.ellipse(R.x + R.w / 2, R.y + R.h / 2, R.w / 2, R.h / 2, 0, 0, Math.PI * 2);
-    else ctx.roundRect(R.x, R.y, R.w, R.h, Math.min(R.w, R.h) * 0.045);
+  const facePath = (shape, R) => LanternArt.facePath(ctx, shape, R.x, R.y, R.w, R.h);
+
+  // Detailed lanterns are rendered once into a sprite (kept on `holder`) and re-rendered only when they change
+  function spriteFor(holder, shape, color, img, R) {
+    const key = `${shape}|${color}|${Math.round(R.w)}x${Math.round(R.h)}`;
+    const a = holder.art;
+    if (a && a.key === key && a.img === img) return a.sprite;
+    holder.art = { key, img, sprite: LanternArt.sprite({ shape, color, img }, R.w, R.h, 1) };
+    return holder.art.sprite;
   }
 
-  function paintLantern(shape, color, img, R, alpha) {
+  function paintLantern(holder, shape, color, img, R, alpha) {
     if (alpha <= 0) return;
     ctx.save();
     ctx.globalAlpha = alpha;
-    facePath(shape, R); ctx.clip();
-    if (color && color !== 'off') { ctx.fillStyle = color; ctx.fillRect(R.x, R.y, R.w, R.h); }
-    if (img) ctx.drawImage(img, R.x, R.y, R.w, R.h);   // stretched to the lantern's calibrated box
+    if (detailed) {
+      const s = spriteFor(holder, shape, color, img, R);
+      ctx.drawImage(s.c, R.x - s.mg.x, R.y - s.mg.top);
+    } else {
+      facePath(shape, R); ctx.clip();
+      if (color && color !== 'off') { ctx.fillStyle = color; ctx.fillRect(R.x, R.y, R.w, R.h); }
+      if (img) ctx.drawImage(img, R.x, R.y, R.w, R.h);   // stretched to the lantern's calibrated box
+    }
     ctx.restore();
   }
 
@@ -129,9 +145,15 @@
       const k = v.prev ? Math.min(1, (now - v.t0) / FADE_MS) : 1;
       if (v.prev && k < 1) {
         animating = true;
-        paintLantern(v.lantern.shape, v.prev.color, v.prev.img, R, 1 - k);
+        paintLantern(v.prev, v.lantern.shape, v.prev.color, v.prev.img, R, 1 - k);
       } else v.prev = null;
-      paintLantern(v.lantern.shape, v.lantern.color, v.img, R, k);
+      paintLantern(v, v.lantern.shape, v.lantern.color, v.img, R, k);
+      if (v.burst) {
+        ctx.save();
+        if (!detailed) { facePath(v.lantern.shape, R); ctx.clip(); }   // flat look: keep the wall around it black
+        if (LanternArt.drawBurst(ctx, v.burst, R.x, R.y, R.w, R.h, now, 1.5)) animating = true; else v.burst = null;
+        ctx.restore();
+      }
 
       if (calibrating && unlocked) {
         const sel = selected === v.lantern.id;
@@ -295,6 +317,11 @@
       else document.documentElement.requestFullscreen?.().catch(() => {});
     }
     if (k === 'c') setCalibrating(!calibrating);
+    if (k === 'd') {
+      detailed = !detailed;
+      try { localStorage.setItem(LOOK_KEY, detailed ? 'detailed' : 'flat'); } catch { /* private mode */ }
+      requestDraw();
+    }
     if (!calibrating || !unlocked) return;
     if (k === 's') { e.preventDefault(); saveLayout(); }
     const v = selected != null && views.get(selected);

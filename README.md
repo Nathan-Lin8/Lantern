@@ -3,7 +3,7 @@
 An iPad controller and a projector display for an interactive lantern wall.
 
 - **Controller** (`site/index.html`): visitors pick a lantern, then **A** draw on it,
-  **B** add text, or **C** change the light. Round and oval lanterns only get **C**.
+  **B** add text, or **C** change the light. Round, oval and oblong lanterns only get **C**.
 - **Projector** (`site/projector.html`): black full-screen page that draws each lantern's light
   and drawing at its spot on the wall. Updates fade in live.
 - **Netlify** hosts the pages. **Supabase** stores the lanterns, the drawings (as PNGs), and pushes
@@ -82,7 +82,7 @@ Edit `site/layout.js`. Each line is one lantern:
 
 | Field | Meaning |
 |---|---|
-| `shape` | `rect` or `square` can show drawings and text. `circle` or `oval` are light only. |
+| `shape` | `rect` or `square` can show drawings and text. `circle`, `oval` or `oblong` (a tall classic paper lantern) are light only. |
 | `cx`, `cy` | Center of the lantern, 0 to 1 across and down the wall |
 | `size` | Width as a fraction of the wall width |
 | `aspect` | Real width ÷ height: 1 for squares and circles, 0.75 for a tall 3:4 box, 1.33 for a wide one |

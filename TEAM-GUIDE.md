@@ -23,7 +23,7 @@ The lantern on the real wall should change within a second.
 
 Visitors tap a lantern, pick what to do, and press **Send to wall**. That's it.
 
-- Round lanterns can only change color. That's on purpose.
+- Round and oblong lanterns can only change color. That's on purpose.
 - If nobody touches the iPad for 90 seconds, it goes back to the wall screen by itself.
 
 ## If something looks wrong

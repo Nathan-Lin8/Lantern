@@ -60,6 +60,7 @@
           <div class="frame" id="frame">
             <canvas id="bg"></canvas>
             <canvas id="ink"></canvas>
+            <canvas id="fx" aria-hidden="true"></canvas>
           </div>
           <p class="hint" id="hint"></p>
         </div>
@@ -131,7 +132,7 @@
   <div class="modal-back" id="chooser" hidden>
     <div class="modal" role="dialog" aria-labelledby="chooserTitle">
       <div class="modal-head">
-        <div class="mini" id="chooserMini"></div>
+        <canvas class="mini" id="chooserMini" aria-hidden="true"></canvas>
         <div>
           <h2 id="chooserTitle">Lantern 1</h2>
           <p>What do you want to do?</p>
@@ -142,7 +143,7 @@
         <button type="button" data-mode="text"><span class="letter">B</span><b>Add text</b><span>Type a short message</span></button>
         <button type="button" data-mode="color"><span class="letter">C</span><b>Change the light</b><span>Pick a color</span></button>
       </div>
-      <p class="chooser-note" id="chooserNote" hidden>This lantern is round, so it can only change its light. Pick a square or rectangle lantern to draw or add text.</p>
+      <p class="chooser-note" id="chooserNote" hidden>This lantern is curved, so it can only change its light. Pick a square or rectangle lantern to draw or add text.</p>
       <button type="button" class="btn ghost" id="chooserCancel">Cancel</button>
     </div>
   </div>
@@ -152,6 +153,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
   <script src="config.js"></script>
   <script src="lw.js"></script>
+  <script src="lantern-art.js"></script>
   <script src="controller.js"></script>
 </body>
 </html>

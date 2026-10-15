@@ -26,7 +26,7 @@ on conflict (key) do update set value = excluded.value;
 -- ============================================================
 create table if not exists public.lanterns (
   id          int primary key,
-  shape       text  not null check (shape in ('rect', 'square', 'circle', 'oval')),
+  shape       text  not null check (shape in ('rect', 'square', 'circle', 'oval', 'oblong')),
   color       text  not null default '#f4a64a' check (color ~ '^#[0-9a-f]{6}$' or color = 'off'),
   image_path  text,
   wall        jsonb not null,   -- {x,y,w,h} position on the iPad's picture of the wall
@@ -34,6 +34,20 @@ create table if not exists public.lanterns (
   updated_at  timestamptz not null default now()
 );
 alter table public.lanterns enable row level security;
+
+-- Older databases were created before 'oblong' existed: replace the shape rule so they allow it too
+do $$
+declare c text;
+begin
+  for c in select conname from pg_constraint
+            where conrelid = 'public.lanterns'::regclass and contype = 'c'
+              and pg_get_constraintdef(oid) ilike '%shape%'
+  loop
+    execute format('alter table public.lanterns drop constraint %I', c);
+  end loop;
+end $$;
+alter table public.lanterns add constraint lanterns_shape_check
+  check (shape in ('rect', 'square', 'circle', 'oval', 'oblong'));
 
 -- Anyone can read (the projector and iPad need to). Nobody can write directly;
 -- all writes go through the functions below, which check the access code.
@@ -47,16 +61,16 @@ revoke all on public.lw_settings from anon, authenticated;
 insert into public.lanterns (id, shape, color, wall, proj) values
   (1, 'circle', '#f4a64a', '{"x":0.05,"y":0.2289,"w":0.08,"h":0.1422}', '{"x":0.05,"y":0.2289,"w":0.08,"h":0.1422}'),
   (2, 'rect', '#fff1d6', '{"x":0.17,"y":0.1778,"w":0.12,"h":0.2844}', '{"x":0.17,"y":0.1778,"w":0.12,"h":0.2844}'),
-  (3, 'circle', '#ec6f86', '{"x":0.325,"y":0.1444,"w":0.13,"h":0.2311}', '{"x":0.325,"y":0.1444,"w":0.13,"h":0.2311}'),
+  (3, 'oblong', '#ec6f86', '{"x":0.34,"y":0.1266,"w":0.1,"h":0.2867}', '{"x":0.34,"y":0.1266,"w":0.1,"h":0.2867}'),
   (4, 'square', '#5fb7d4', '{"x":0.5,"y":0.2022,"w":0.11,"h":0.1956}', '{"x":0.5,"y":0.2022,"w":0.11,"h":0.1956}'),
   (5, 'oval', '#9ad46f', '{"x":0.65,"y":0.1784,"w":0.08,"h":0.2032}', '{"x":0.65,"y":0.1784,"w":0.08,"h":0.2032}'),
   (6, 'rect', '#fff1d6', '{"x":0.78,"y":0.1931,"w":0.16,"h":0.2139}', '{"x":0.78,"y":0.1931,"w":0.16,"h":0.2139}'),
   (7, 'square', '#9b7be8', '{"x":0.07,"y":0.6489,"w":0.08,"h":0.1422}', '{"x":0.07,"y":0.6489,"w":0.08,"h":0.1422}'),
-  (8, 'oval', '#f28a2e', '{"x":0.225,"y":0.6243,"w":0.07,"h":0.1915}', '{"x":0.225,"y":0.6243,"w":0.07,"h":0.1915}'),
+  (8, 'oblong', '#f28a2e', '{"x":0.225,"y":0.6163,"w":0.07,"h":0.2074}', '{"x":0.225,"y":0.6163,"w":0.07,"h":0.2074}'),
   (9, 'rect', '#f4a64a', '{"x":0.38,"y":0.5241,"w":0.14,"h":0.3319}', '{"x":0.38,"y":0.5241,"w":0.14,"h":0.3319}'),
   (10, 'circle', '#3fc1b0', '{"x":0.57,"y":0.6311,"w":0.1,"h":0.1778}', '{"x":0.57,"y":0.6311,"w":0.1,"h":0.1778}'),
   (11, 'rect', '#ec6f86', '{"x":0.73,"y":0.6015,"w":0.1,"h":0.237}', '{"x":0.73,"y":0.6015,"w":0.1,"h":0.237}'),
-  (12, 'circle', '#f5d547', '{"x":0.89,"y":0.6967,"w":0.06,"h":0.1067}', '{"x":0.89,"y":0.6967,"w":0.06,"h":0.1067}')
+  (12, 'oblong', '#f5d547', '{"x":0.89,"y":0.6311,"w":0.06,"h":0.1778}', '{"x":0.89,"y":0.6311,"w":0.06,"h":0.1778}')
 on conflict (id) do nothing;
 
 -- Push row changes to the projector and iPads instantly
@@ -124,7 +138,7 @@ begin
   if v_shape is null then raise exception 'There is no lantern %.', p_id; end if;
   if p_path is not null then
     if v_shape not in ('rect', 'square') then
-      raise exception 'Lantern % is round, so it can only change color.', p_id;
+      raise exception 'Lantern % is curved, so it can only change color.', p_id;
     end if;
     if p_path !~ ('^lantern-' || p_id || '/[0-9]+\.png$') then
       raise exception 'That image does not belong to lantern %.', p_id;

@@ -97,7 +97,7 @@
         if (i >= 0) lanterns[i] = l; else lanterns.push(l);
         const el = document.getElementById('lan-' + l.id);
         if (el && !el.classList.contains('shape-' + l.shape)) return renderWall();
-        updateWallLantern(l);
+        updateWallLantern(l, true);
       },
       onRemove: id => {
         lanterns = lanterns.filter(x => x.id !== id);
@@ -111,7 +111,11 @@
   }
 
   // ---------- Wall screen ----------
+  // Each lantern is a button holding a canvas. The detailed drawing is rendered once per change
+  // into a sprite; animation frames only copy sprites and add sparkles, and only while something moves.
   const wall = $('#wall'), wallWrap = $('#wallWrap');
+  const FADE_MS = 600;
+  const art = new Map();      // id -> { sprite, prev, t0, burst, img, url, color, seq, pending }
 
   function renderWall() {
     wall.innerHTML = '';
@@ -119,11 +123,7 @@
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'lan shape-' + l.shape; b.id = 'lan-' + l.id;
       b.setAttribute('aria-label', `Lantern ${l.id}${l.canDraw ? '' : ' (light only)'}`);
-      Object.assign(b.style, {
-        left: l.wall.x * 100 + '%', top: l.wall.y * 100 + '%',
-        width: l.wall.w * 100 + '%', height: l.wall.h * 100 + '%'
-      });
-      b.innerHTML = '<span class="glass"></span><img alt="" hidden><span class="num"></span>';
+      b.innerHTML = '<canvas class="art" aria-hidden="true"></canvas><span class="num"></span>';
       b.querySelector('.num').textContent = l.id;
       b.addEventListener('click', () => openChooser(l.id));
       wall.append(b);
@@ -131,20 +131,88 @@
     });
   }
 
-  function updateWallLantern(l, flash = true) {
+  // animate = true when this is a live change (sparkle + fade); false for the first draw
+  async function updateWallLantern(l, animate) {
     const b = document.getElementById('lan-' + l.id);
     if (!b) return renderWall();
-    b.classList.toggle('off', l.color === 'off');
-    if (l.color !== 'off') b.style.setProperty('--c', l.color);
-    const img = b.querySelector('img');
-    if (l.imageUrl) { img.src = l.imageUrl; img.hidden = false; } else { img.hidden = true; img.removeAttribute('src'); }
-    if (flash) { b.classList.remove('flash'); void b.offsetWidth; b.classList.add('flash'); }
+    Object.assign(b.style, {
+      left: l.wall.x * 100 + '%', top: l.wall.y * 100 + '%',
+      width: l.wall.w * 100 + '%', height: l.wall.h * 100 + '%'
+    });
+    if (!art.has(l.id)) art.set(l.id, {});
+    const a = art.get(l.id), seq = a.seq = (a.seq || 0) + 1;
+    const urlChanged = (a.url || null) !== (l.imageUrl || null);
+    const changed = animate && a.sprite && (urlChanged || a.color !== l.color);
+    if (urlChanged) {            // load the new drawing first so it fades in complete
+      let img = null;
+      if (l.imageUrl) { try { img = await LW.loadImage(l.imageUrl); } catch { /* show without it */ } }
+      if (a.seq !== seq) return;  // a newer update already arrived
+      a.img = img; a.url = l.imageUrl;
+    }
+    a.color = l.color;
+    if (changed) a.pending = true;
+    drawWallLantern(l);
+  }
+
+  // Re-renders one lantern's sprite at its current size. Skipped while the wall is hidden;
+  // a change that arrived then plays its sparkle when the wall comes back.
+  function drawWallLantern(l) {
+    const a = art.get(l.id), b = document.getElementById('lan-' + l.id);
+    if (!a || !b) return;
+    const w = b.offsetWidth, h = b.offsetHeight;
+    if (w < 2 || h < 2) return;
+    const old = a.sprite;
+    a.sprite = LanternArt.sprite({ shape: l.shape, color: l.color, img: a.img }, w, h, Math.min(2, window.devicePixelRatio || 1));
+    if (a.pending && old) {
+      a.pending = false;
+      a.prev = old; a.t0 = performance.now();
+      a.burst = LanternArt.burst(l.shape, l.color);
+    }
+    if (paintArt(l.id, performance.now())) animate(l.id);
+  }
+
+  // One frame for one lantern. Returns true while it still has something to animate.
+  function paintArt(id, now) {
+    const a = art.get(id), cv = document.querySelector('#lan-' + id + ' .art');
+    if (!a || !a.sprite || !cv) return false;
+    const s = a.sprite;
+    if (cv.width !== s.c.width || cv.height !== s.c.height) {
+      cv.width = s.c.width; cv.height = s.c.height;
+      Object.assign(cv.style, {
+        left: -s.mg.x + 'px', top: -s.mg.top + 'px',
+        width: s.w + 2 * s.mg.x + 'px', height: s.h + s.mg.top + s.mg.bottom + 'px'
+      });
+    }
+    const g = cv.getContext('2d');
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, cv.width, cv.height);
+    let busy = false;
+    const k = a.prev ? Math.min(1, (now - a.t0) / FADE_MS) : 1;
+    if (a.prev && k < 1) { g.drawImage(a.prev.c, 0, 0, cv.width, cv.height); busy = true; } else a.prev = null;
+    g.globalAlpha = k; g.drawImage(s.c, 0, 0); g.globalAlpha = 1;
+    if (a.burst) {
+      g.setTransform(s.dpr, 0, 0, s.dpr, 0, 0);
+      if (LanternArt.drawBurst(g, a.burst, s.mg.x, s.mg.top, s.w, s.h, now)) busy = true; else a.burst = null;
+    }
+    return busy;
+  }
+
+  const moving = new Set();
+  let rafOn = false;
+  function animate(id) {
+    moving.add(id);
+    if (!rafOn) { rafOn = true; requestAnimationFrame(tick); }
+  }
+  function tick(now) {
+    for (const id of [...moving]) if (!paintArt(id, now)) moving.delete(id);
+    if (moving.size) requestAnimationFrame(tick); else rafOn = false;
   }
 
   function fitWall() {
     const r = wallWrap.getBoundingClientRect();
     const w = Math.min(r.width, r.height * 16 / 9);
     wall.style.width = w + 'px'; wall.style.height = (w * 9 / 16) + 'px';
+    lanterns.forEach(drawWallLantern);
   }
   new ResizeObserver(fitWall).observe(wallWrap);
 
@@ -155,14 +223,25 @@
     chosenId = id;
     const l = lanterns.find(x => x.id === id);
     $('#chooserTitle').textContent = 'Lantern ' + id;
-    const mini = $('#chooserMini');
-    mini.className = 'mini shape-' + l.shape;
-    mini.style.setProperty('--c', l.color === 'off' ? '#2d2733' : l.color);
-    mini.style.aspectRatio = `${l.wall.w * 16} / ${l.wall.h * 9}`;
+    drawMini(l);
     // Only flat (square / rectangle) lanterns can show drawings and text
     chooser.querySelectorAll('[data-mode="draw"], [data-mode="text"]').forEach(b => { b.disabled = !l.canDraw; });
     $('#chooserNote').hidden = l.canDraw;
     chooser.hidden = false;
+  }
+  // Small detailed preview of the chosen lantern, at its real proportions
+  function drawMini(l) {
+    const mini = $('#chooserMini');
+    const aspect = (l.wall.w * 16) / (l.wall.h * 9);
+    let h = 60, w = h * aspect;
+    if (w > 84) { w = 84; h = w / aspect; }
+    const mg = LanternArt.margins(l.shape, w, h), dpr = Math.min(2, window.devicePixelRatio || 1);
+    const cw = w + 2 * mg.x, ch = h + mg.top + mg.bottom;
+    mini.width = Math.ceil(cw * dpr); mini.height = Math.ceil(ch * dpr);
+    mini.style.width = cw + 'px'; mini.style.height = ch + 'px';
+    const g = mini.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    LanternArt.drawDetailed(g, { shape: l.shape, color: l.color, img: art.get(l.id)?.img }, mg.x, mg.top, w, h);
   }
   chooser.querySelectorAll('[data-mode]').forEach(b =>
     b.addEventListener('click', () => { chooser.hidden = true; openEditor(chosenId, b.dataset.mode); }));
@@ -182,12 +261,12 @@
     [bg, ink].forEach(c => { c.width = Math.round(W * SS); c.height = Math.round(H * SS); });
     bctx.setTransform(SS, 0, 0, SS, 0, 0);
     ictx.setTransform(SS, 0, 0, SS, 0, 0);
-    frame.classList.toggle('round', !l.canDraw);
+    frame.classList.toggle('round', l.shape === 'circle' || l.shape === 'oval');
   }
 
   async function openEditor(id, m) {
     const l = lanterns.find(x => x.id === id);
-    if (!l.canDraw && m !== 'color') m = 'color';      // round lanterns are light-only
+    if (!l.canDraw && m !== 'color') m = 'color';      // round and oblong lanterns are light-only
     current = id; mode = m; shape = l.shape;
     sizeCanvases(l);
     ed.strokes = []; ed.base = null; ed.color = l.color;
@@ -219,11 +298,7 @@
   }
   $('#back').addEventListener('click', goWall);
 
-  function facePath(ctx) {
-    ctx.beginPath();
-    if (shape === 'circle' || shape === 'oval') ctx.ellipse(W / 2, H / 2, W / 2, H / 2, 0, 0, Math.PI * 2);
-    else ctx.roundRect(0, 0, W, H, Math.min(W, H) * 0.045);
-  }
+  const facePath = ctx => LanternArt.facePath(ctx, shape, 0, 0, W, H);
 
   // Background = the light color, the way the projector will show it
   function renderBg() {
@@ -417,12 +492,30 @@
     return true;
   }
 
+  // Short sparkle over the editor's lantern the moment Send is tapped
+  const fx = $('#fx');
+  function sendSparkle() {
+    const b = LanternArt.burst(shape, ed.color, true);
+    if (!b) return 0;
+    const dpr = Math.min(2, window.devicePixelRatio || 1), w = frame.clientWidth, h = frame.clientHeight;
+    fx.width = Math.round(w * dpr); fx.height = Math.round(h * dpr);
+    const g = fx.getContext('2d');
+    const step = now => {
+      g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, fx.width, fx.height);
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (LanternArt.drawBurst(g, b, 0, 0, w, h, now)) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+    return b.dur;
+  }
+
   const sendBtn = $('#send');
   sendBtn.addEventListener('click', async () => {
     if (current == null) return;
     const id = current;
     const code = LW.codes.get('controller');
     sendBtn.disabled = true; sendBtn.textContent = 'Sending…';
+    const showUntil = performance.now() + sendSparkle() * 0.85;
     try {
       if (mode === 'color') {
         await LW.rpc('set_lantern_color', { p_id: id, p_color: ed.color, p_code: code });
@@ -433,8 +526,10 @@
         const path = await LW.uploadPng(id, blob);
         await LW.rpc('set_lantern_image', { p_id: id, p_path: path, p_code: code });
       }
+      const wait = showUntil - performance.now();   // let the sparkle play before leaving
+      if (wait > 0) await new Promise(r => setTimeout(r, wait));
       toast(`Sent to lantern ${id}`);
-      goWall();
+      if (current === id) goWall();
     } catch (err) {
       if (err.badCode) {
         LW.codes.clear('controller');
