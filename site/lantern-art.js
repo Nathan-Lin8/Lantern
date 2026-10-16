@@ -11,6 +11,18 @@
   const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
   const css = (c, a = 1) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 
+  // Rounded rectangle path. ctx.roundRect only exists on iPadOS 16+ / Safari 16+, so older iPads get arcTo.
+  function rrect(ctx, x, y, w, h, r) {
+    if (ctx.roundRect) return ctx.roundRect(x, y, w, h, r);
+    r = Math.max(0, Math.min(r, w / 2, h / 2));
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
   // ---------- Shapes ----------
   // Half-width of the body at height v (0 = top, 1 = bottom), as a fraction of half the box width
   function halfWidth(shape, v) {
@@ -31,7 +43,7 @@
       for (let i = N; i >= 0; i--) { const v = vAt(i); ctx.lineTo(cx - w / 2 * halfWidth(shape, v), y + v * h); }
       ctx.closePath();
     } else {
-      ctx.roundRect(x, y, w, h, Math.min(w, h) * 0.045);
+      rrect(ctx, x, y, w, h, Math.min(w, h) * 0.045);
     }
   }
 
@@ -76,7 +88,7 @@
     const g = ctx.createLinearGradient(0, top, 0, top + h);
     g.addColorStop(0, '#74502e'); g.addColorStop(0.35, '#4a2c16'); g.addColorStop(1, '#1c0f06');
     ctx.fillStyle = g;
-    ctx.beginPath(); ctx.roundRect(cx - w / 2, top, w, h, h * 0.3); ctx.fill();
+    ctx.beginPath(); rrect(ctx, cx - w / 2, top, w, h, h * 0.3); ctx.fill();
     const lw = Math.max(0.75, h * 0.12);
     ctx.strokeStyle = 'rgba(255,215,160,0.28)'; ctx.lineWidth = lw;
     ctx.beginPath(); ctx.moveTo(cx - w / 2 + h * 0.3, top + lw); ctx.lineTo(cx + w / 2 - h * 0.3, top + lw); ctx.stroke();
