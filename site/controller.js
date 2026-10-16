@@ -376,10 +376,19 @@
   // ---------- Touch / pen input (no bounce, no zoom) ----------
   ['touchstart', 'touchmove'].forEach(evt =>
     stage.addEventListener(evt, e => e.preventDefault(), { passive: false }));
-  document.addEventListener('gesturestart', e => e.preventDefault());
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(evt =>
+    document.addEventListener(evt, e => e.preventDefault()));
   document.addEventListener('touchmove', e => {
-    if (!e.target.closest('.tools')) e.preventDefault();
+    if (e.touches.length > 1) { e.preventDefault(); return; }     // no pinch zoom anywhere
+    // Only the tools panel may scroll, and only when it has something to scroll (sliders always work)
+    const tools = e.target.closest('.tools');
+    if (tools && (tools.scrollHeight > tools.clientHeight || e.target.closest('input'))) return;
+    e.preventDefault();
   }, { passive: false });
+  // Safari's keyboard can leave the page pushed up after typing; put it back when the field loses focus
+  document.addEventListener('focusout', () => setTimeout(() => { if (scrollX || scrollY) scrollTo(0, 0); }, 60));
+  // Long press on the drawing shouldn't pop up Save Image / Copy
+  ['contextmenu', 'selectstart'].forEach(evt => stage.addEventListener(evt, e => e.preventDefault()));
 
   let active = null, cur = null, drag = null, sawPen = false;
   const pt = e => {
