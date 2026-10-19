@@ -39,50 +39,19 @@
     text: { value: '', size: 96, color: INK[0], font: 'hand', dx: 0, dy: 0 }
   };
 
-  // ---------- Startup: setup check -> access code -> wall ----------
+  // ---------- Startup: setup check -> wall ----------
   const conn = $('#conn');
-  const show = id => ['screen-setup', 'screen-gate', 'screen-wall', 'screen-editor']
+  const show = id => ['screen-setup', 'screen-wall', 'screen-editor']
     .forEach(s => { $('#' + s).hidden = s !== id; });
 
-  LW.codes.fromUrl('code', 'controller');   // a link like ...?code=lanterns signs the iPad in
-
-  async function boot() {
+  function boot() {
     if (LW.libMissing) {
       $('#setupMsg').textContent = "Can't reach the internet right now. Check the Wi-Fi, then reload this page.";
       return show('screen-setup');
     }
     if (!LW.configured) return show('screen-setup');
-    const saved = LW.codes.get('controller');
-    if (saved) {
-      try {
-        if (await LW.checkCode(saved, 'controller')) return enterWall();
-        LW.codes.clear('controller');
-      } catch {
-        return enterWall();   // offline right now; sends will say so
-      }
-    }
-    showGate();
+    enterWall();
   }
-
-  function showGate(message = '') {
-    show('screen-gate');
-    $('#gateError').textContent = message;
-    $('#gateCode').value = '';
-  }
-
-  $('#gateForm').addEventListener('submit', async e => {
-    e.preventDefault();
-    const code = $('#gateCode').value.trim();
-    if (!code) return;
-    const btn = $('#gateBtn');
-    btn.disabled = true;
-    try {
-      if (await LW.checkCode(code, 'controller')) { LW.codes.set('controller', code); enterWall(); }
-      else $('#gateError').textContent = "That code didn't work. Check with your team.";
-    } catch (err) {
-      $('#gateError').textContent = err.message;
-    } finally { btn.disabled = false; }
-  });
 
   let live = false;
   function enterWall() {
@@ -122,7 +91,7 @@
     lanterns.forEach(l => {
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'lan shape-' + l.shape; b.id = 'lan-' + l.id;
-      b.setAttribute('aria-label', `Lantern ${l.id}${l.canDraw ? '' : ' (light only)'}`);
+      b.setAttribute('aria-label', `Lantern ${l.id}`);
       b.innerHTML = '<canvas class="art" aria-hidden="true"></canvas><span class="num"></span>';
       b.querySelector('.num').textContent = l.id;
       b.addEventListener('click', () => openChooser(l.id));
@@ -224,9 +193,6 @@
     const l = lanterns.find(x => x.id === id);
     $('#chooserTitle').textContent = 'Lantern ' + id;
     drawMini(l);
-    // Only flat (square / rectangle) lanterns can show drawings and text
-    chooser.querySelectorAll('[data-mode="draw"], [data-mode="text"]').forEach(b => { b.disabled = !l.canDraw; });
-    $('#chooserNote').hidden = l.canDraw;
     chooser.hidden = false;
   }
   // Small detailed preview of the chosen lantern, at its real proportions
@@ -266,7 +232,6 @@
 
   async function openEditor(id, m) {
     const l = lanterns.find(x => x.id === id);
-    if (!l.canDraw && m !== 'color') m = 'color';      // round and oblong lanterns are light-only
     current = id; mode = m; shape = l.shape;
     sizeCanvases(l);
     ed.strokes = []; ed.base = null; ed.color = l.color;
@@ -522,28 +487,24 @@
   sendBtn.addEventListener('click', async () => {
     if (current == null) return;
     const id = current;
-    const code = LW.codes.get('controller');
     sendBtn.disabled = true; sendBtn.textContent = 'Sending…';
     const showUntil = performance.now() + sendSparkle() * 0.85;
     try {
       if (mode === 'color') {
-        await LW.rpc('set_lantern_color', { p_id: id, p_color: ed.color, p_code: code });
+        await LW.rpc('set_lantern_color', { p_id: id, p_color: ed.color });
       } else if (inkIsEmpty()) {
-        await LW.rpc('set_lantern_image', { p_id: id, p_path: null, p_code: code });
+        await LW.rpc('set_lantern_image', { p_id: id, p_path: null });
       } else {
         const blob = await new Promise(r => ink.toBlob(r, 'image/png'));
         const path = await LW.uploadPng(id, blob);
-        await LW.rpc('set_lantern_image', { p_id: id, p_path: path, p_code: code });
+        await LW.rpc('set_lantern_image', { p_id: id, p_path: path });
       }
       const wait = showUntil - performance.now();   // let the sparkle play before leaving
       if (wait > 0) await new Promise(r => setTimeout(r, wait));
       toast(`Sent to lantern ${id}`);
       if (current === id) goWall();
     } catch (err) {
-      if (err.badCode) {
-        LW.codes.clear('controller');
-        showGate('The access code changed. Enter the new one.');
-      } else toast(err.message, true);
+      toast(err.message, true);
     } finally {
       sendBtn.disabled = false; sendBtn.textContent = 'Send to wall';
     }

@@ -24,17 +24,6 @@
       </div>
     </section>
 
-    <!-- Access code -->
-    <section class="screen center" id="screen-gate" hidden>
-      <form class="card" id="gateForm" autocomplete="off">
-        <h1 class="brand">Lantern Wall</h1>
-        <label class="label" for="gateCode">Access code</label>
-        <input id="gateCode" class="field" type="text" inputmode="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Enter the code from your team">
-        <p class="gate-error" id="gateError" role="alert"></p>
-        <button type="submit" class="btn primary" id="gateBtn">Start</button>
-      </form>
-    </section>
-
     <!-- Screen 1: the wall -->
     <section class="screen" id="screen-wall" hidden>
       <header class="bar">
@@ -143,7 +132,6 @@
         <button type="button" data-mode="text"><span class="letter">B</span><b>Add text</b><span>Type a short message</span></button>
         <button type="button" data-mode="color"><span class="letter">C</span><b>Change the light</b><span>Pick a color</span></button>
       </div>
-      <p class="chooser-note" id="chooserNote" hidden>This lantern is curved, so it can only change its light. Pick a square or rectangle lantern to draw or add text.</p>
       <button type="button" class="btn ghost" id="chooserCancel">Cancel</button>
     </div>
   </div>

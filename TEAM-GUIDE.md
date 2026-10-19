@@ -13,7 +13,7 @@ You only need two links and a projector. Nothing to install.
 
 **iPad**
 1. Tap the **Lantern Wall** icon on the home screen.
-   (No icon? Open `https://YOUR-SITE.netlify.app/?code=YOUR-CONTROLLER-CODE` in Safari.)
+   (No icon? Open `https://YOUR-SITE.netlify.app/` in Safari.)
 2. You should see the wall and "Please select a lantern", with a green dot that says **Wall connected**.
 3. Lock the iPad to the app so visitors can't swipe away: triple-click the top (or Home) button to start
    **Guided Access**, then tap **Start**. Triple-click again and enter the passcode to exit.
@@ -27,7 +27,6 @@ The lantern on the real wall should change within a second.
 
 Visitors tap a lantern, pick what to do, and press **Send to wall**. That's it.
 
-- Round and oblong lanterns can only change color. That's on purpose.
 - If nobody touches the iPad for 90 seconds, it goes back to the wall screen by itself.
 
 ## If something looks wrong
@@ -37,7 +36,6 @@ Visitors tap a lantern, pick what to do, and press **Send to wall**. That's it.
 | Projector shows only black or a small red dot in the corner | Check the laptop's internet. Reload the page (Cmd+R or Ctrl+R), then press F again. |
 | Projector shows the browser bars | Click the page and press F. |
 | iPad says "Reconnecting…" or "Can't reach the wall" | Check the iPad's Wi-Fi, then close and reopen the app. |
-| iPad asks for an access code | Enter: `YOUR-CONTROLLER-CODE` |
 | Colors are on the wrong lanterns | The projector or table got bumped. Contact Nathan to recalibrate. |
 | Want to wipe all drawings | Contact Nathan (needs the admin code). |
 

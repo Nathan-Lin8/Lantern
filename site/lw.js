@@ -12,14 +12,12 @@
       })
     : null;
 
-  const DRAWABLE = new Set(['rect', 'square']);
   const bucket = cfg.bucket || 'lanterns';
 
   // Database row -> what the pages use
   function toLantern(r) {
     return {
       id: r.id, shape: r.shape, color: r.color, wall: r.wall, proj: r.proj,
-      canDraw: DRAWABLE.has(r.shape),
       imageUrl: r.image_path ? sb.storage.from(bucket).getPublicUrl(r.image_path).data.publicUrl : null
     };
   }

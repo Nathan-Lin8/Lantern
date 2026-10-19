@@ -173,12 +173,10 @@ textarea {
 .frame.round canvas { border-radius: 50%; }
 
 .choices button:disabled { opacity: 0.35; cursor: not-allowed; }
-.chooser-note { margin: -6px 0 0; font-size: 14px; line-height: 1.45; color: var(--muted); }
 
-/* ---------- Setup + access code ---------- */
+/* ---------- Setup ---------- */
 .screen.center { align-items: center; justify-content: center; }
 .card { width: min(420px, 100%); display: flex; flex-direction: column; gap: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 24px; }
 .card p { margin: 0; color: var(--muted); line-height: 1.5; }
 .card code { color: var(--ink); }
 .field { width: 100%; min-height: 52px; border-radius: 12px; border: 1px solid var(--line); background: var(--wall); padding: 0 14px; font-size: 18px; -webkit-user-select: text; user-select: text; }
-.gate-error { min-height: 1.4em; color: var(--bad) !important; font-size: 14px; }

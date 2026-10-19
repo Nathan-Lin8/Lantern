@@ -14,9 +14,8 @@ An iPad controller and a projector display for an interactive lantern wall.
 ### 1. Supabase
 
 1. Create a free project at [supabase.com](https://supabase.com).
-2. Open `supabase/setup.sql` and change the two access codes near the top:
-   - `controller_code`: what the iPad needs. Teammates will use this.
-   - `admin_code`: what the projector needs for calibration and resets. Keep this one to yourself.
+2. Open `supabase/setup.sql` and change `admin_code` near the top: what the projector needs for
+   calibration and resets. Keep it to yourself. The iPad needs no code.
 3. In Supabase go to **SQL Editor → New query**, paste the whole file, and click **Run**.
    It creates the lanterns table, the image bucket, live updates, and the permissions.
 4. Go to **Project Settings → API** (or the **Connect** button) and copy the **Project URL** and the
@@ -34,8 +33,8 @@ window.LANTERN_CONFIG = {
 };
 ```
 
-The anon key is meant to be public. Anyone can *see* the wall, but writing needs an access code,
-which is checked inside the database.
+The anon key is meant to be public. Anyone with the site can send drawings, text and colors;
+calibration and resets need the admin code, which is checked inside the database.
 
 ### 3. Netlify
 
@@ -60,15 +59,15 @@ You'll get a URL like `https://lantern-wall.netlify.app`.
 
 ### 5. Set up the iPad
 
-Open `https://YOUR-SITE.netlify.app/?code=YOUR-CONTROLLER-CODE` in Safari, then tap
-**Share → Add to Home Screen**. The code is remembered, so the home-screen icon opens straight to the wall.
+Open `https://YOUR-SITE.netlify.app/` in Safari, then tap **Share → Add to Home Screen**.
+The home-screen icon opens straight to the wall.
 
 ## Links to give your team
 
 | Device | Link |
 |---|---|
 | Projector laptop | `https://YOUR-SITE.netlify.app/projector.html` |
-| iPad | `https://YOUR-SITE.netlify.app/?code=YOUR-CONTROLLER-CODE` |
+| iPad | `https://YOUR-SITE.netlify.app/` |
 
 `TEAM-GUIDE.md` is a one-page version of this for teammates.
 
@@ -82,7 +81,7 @@ Edit `site/layout.js`. Each line is one lantern:
 
 | Field | Meaning |
 |---|---|
-| `shape` | `rect` or `square` can show drawings and text. `circle`, `oval` or `oblong` (a tall classic paper lantern) are light only. |
+| `shape` | `rect`, `square`, `circle`, `oval` or `oblong` (a tall classic paper lantern). Every shape can show drawings, text and light color. |
 | `cx`, `cy` | Center of the lantern, 0 to 1 across and down the wall |
 | `size` | Width as a fraction of the wall width |
 | `aspect` | Real width ÷ height: 1 for squares and circles, 0.75 for a tall 3:4 box, 1.33 for a wide one |
@@ -97,8 +96,8 @@ This replaces every lantern, so recalibrate afterward.
 - **Clear all drawings**: wipes every drawing, keeps colors and positions. Good between sessions.
 - **Reset to layout.js**: rebuilds all lanterns from `layout.js`. Clears drawings and calibration.
 
-To change an access code, edit it in the "Access codes" block of `setup.sql` and run just that
-block in the SQL Editor. iPads with the old code will ask for the new one on their next send.
+To change the admin code, edit it in the "Access codes" block of `setup.sql` and run just that
+block in the SQL Editor.
 
 ## How it works
 
@@ -109,8 +108,8 @@ block in the SQL Editor. iPads with the old code will ask for the new one on the
 | Change light | `set_lantern_color` |
 | Projector | Subscribes to changes on the `lanterns` table and fades each update in |
 
-All writes go through database functions that check the access code. The website can't edit the
-table directly or read the codes.
+All writes go through database functions; the admin ones check the admin code. The website can't
+edit the table directly or read the codes.
 
 ## Files
 
@@ -120,7 +119,7 @@ site/                  what Netlify publishes
   controller.js / .css
   projector.html       projector display + calibration
   projector.js
-  lw.js                Supabase connection, uploads, access codes
+  lw.js                Supabase connection, uploads, admin code
   config.js            your Supabase URL + anon key
   layout.js            the list of lanterns
 supabase/setup.sql     run once in the Supabase SQL Editor
