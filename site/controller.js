@@ -1,5 +1,5 @@
 // iPad controller: pick a lantern, then draw / write / change its light, then send it to the wall.
-// The wall view and the idle attract screen animate with the same ambient engine as the projector (ambient.js).
+// The wall view animates with the same ambient engine as the projector (ambient.js).
 (() => {
   const $ = s => document.querySelector(s);
 
@@ -7,7 +7,6 @@
   const FACE_MAX = 800;            // longest side of the drawing space; the other side follows the lantern's shape
   const SS = 1.5;                  // export scale -> a 3:4 lantern exports at 900 x 1200
   const IDLE_MS = 90_000;          // editor returns to the wall after this long untouched
-  const ATTRACT_MS = 60_000;       // the wall fades to the idle attract screen after this long untouched
   const AFTERGLOW_MS = 4200;       // "Look up" message after sending
   let W = 600, H = 800;            // current drawing space, set per lantern in openEditor()
   let shape = 'rect';              // current lantern's shape
@@ -86,8 +85,7 @@
   // ---------- Wall screen ----------
   // The wall mirrors the projector: one canvas paints every lantern (a detailed sprite rendered once per
   // change), then the shared ambient engine adds breathing, flicker, color drift and wisps between lanterns.
-  // Each lantern also gets an invisible button on top for tapping. The idle attract screen paints the
-  // same wall onto its own full-screen canvas.
+  // Each lantern also gets an invisible button on top for tapping.
   const wall = $('#wall'), wallWrap = $('#wallWrap'), wallCanvas = $('#wallCanvas');
   const FADE_MS = 1000;
   const art = new Map();      // id -> { img, url, color, seq, pending, prev, t0, burst, sprites }
@@ -160,7 +158,7 @@
     loop();
   }
 
-  // Detailed lantern sprite for one surface ('wall' or 'attract'), re-rendered only when something changes
+  // Detailed lantern sprite for one surface, re-rendered only when something changes
   function spriteFor(holder, surface, l, color, img, w, h) {
     const key = `${l.shape}|${color}|${Math.round(w)}x${Math.round(h)}`;
     const c = holder.sprites[surface];
@@ -169,25 +167,14 @@
     return holder.sprites[surface].sprite;
   }
 
-  // Surfaces: the wall on the wall screen, and the big one on the attract screen.
-  // box = where the 16:9 wall sits on the canvas (CSS pixels); pad = room around it for glow.
-  const surfaces = {
-    wall: { canvas: wallCanvas, box: null },
-    attract: { canvas: $('#attractCanvas'), box: null }
-  };
+  // box = where the 16:9 wall sits on the canvas (CSS pixels); the canvas spills past the wall for glow
+  const surfaces = { wall: { canvas: wallCanvas, box: null } };
 
   function sizeSurface(name) {
     const s = surfaces[name], d = dpr();
-    let cw, ch, box;
-    if (name === 'wall') {
-      const w = wall.offsetWidth, h = wall.offsetHeight, pad = Math.round(Math.max(w, h) * 0.06);
-      cw = w + pad * 2; ch = h + pad * 2; box = { x: pad, y: pad, w, h };
-      Object.assign(s.canvas.style, { left: -pad + 'px', top: -pad + 'px', width: cw + 'px', height: ch + 'px' });
-    } else {
-      cw = innerWidth; ch = innerHeight;
-      const w = Math.min(cw * 0.92, ch * 0.78 * 16 / 9), h = w * 9 / 16;
-      box = { x: (cw - w) / 2, y: (ch - h) / 2 - ch * 0.06, w, h };
-    }
+    const w = wall.offsetWidth, h = wall.offsetHeight, pad = Math.round(Math.max(w, h) * 0.06);
+    const cw = w + pad * 2, ch = h + pad * 2, box = { x: pad, y: pad, w, h };
+    Object.assign(s.canvas.style, { left: -pad + 'px', top: -pad + 'px', width: cw + 'px', height: ch + 'px' });
     if (s.canvas.width !== Math.round(cw * d) || s.canvas.height !== Math.round(ch * d)) {
       s.canvas.width = Math.round(cw * d); s.canvas.height = Math.round(ch * d);
     }
@@ -230,23 +217,20 @@
     g.restore();
   }
 
-  // One animation loop, running only while the wall or the attract screen is on screen
+  // One animation loop, running only while the wall is on screen
   const wallVisible = () => !$('#screen-wall').hidden;
-  const attractVisible = () => !$('#attract').hidden;
   let rafOn = false, lastNow = 0;
   function loop() {
-    if (rafOn || !(wallVisible() || attractVisible())) return;
+    if (rafOn || !wallVisible()) return;
     rafOn = true; lastNow = 0;
     requestAnimationFrame(tick);
   }
   function tick(now) {
-    const showWall = wallVisible(), showAttract = attractVisible();
-    if (!showWall && !showAttract) { rafOn = false; return; }
+    if (!wallVisible()) { rafOn = false; return; }
     const dt = lastNow ? Math.min(0.1, (now - lastNow) / 1000) : 0;
     lastNow = now;
     eng.update(dt);
-    if (showAttract) paintSurface('attract', now);
-    if (showWall && !$('#attract').classList.contains('on')) paintSurface('wall', now);   // also while attract fades out
+    paintSurface('wall', now);
     requestAnimationFrame(tick);
   }
 
@@ -257,7 +241,6 @@
     sizeSurface('wall');
   }
   new ResizeObserver(fitWall).observe(wallWrap);
-  addEventListener('resize', () => { if (attractVisible()) sizeSurface('attract'); });
 
   // ---------- Chooser ----------
   const chooser = $('#chooser');
@@ -706,29 +689,7 @@
     agTimer = setTimeout(() => { afterglow.hidden = true; }, 1400);
   }
 
-  // ---------- Idle: editor -> wall, then the attract screen (so the next visitor starts fresh) ----------
-  const attract = $('#attract');
-  let attractTimer;
-  function showAttract() {
-    if (!attractVisible()) {
-      clearTimeout(attractTimer);
-      attract.hidden = false;
-      sizeSurface('attract');
-      requestAnimationFrame(() => requestAnimationFrame(() => attract.classList.add('on')));
-      loop();
-    }
-  }
-  function hideAttract() {
-    if (attractVisible() && attract.classList.contains('on')) {
-      attract.classList.remove('on');
-      clearTimeout(attractTimer);
-      // stays tappable while it fades, so the waking touch never lands on a lantern underneath
-      attractTimer = setTimeout(() => { attract.hidden = true; }, Ambient.reduceMotion.matches ? 300 : 1200);
-    }
-  }
-  attract.addEventListener('pointerdown', e => { e.preventDefault(); hideAttract(); });
-  attract.addEventListener('click', e => e.preventDefault());
-
+  // ---------- Idle reset (so the next visitor starts at the wall) ----------
   let idleTimer;
   function touch() {
     clearTimeout(idleTimer);
@@ -736,8 +697,7 @@
     idleTimer = setTimeout(() => {
       if (current != null) goWall();
       closeChooser(true); hideAfterglow();
-      showAttract();
-    }, current != null ? IDLE_MS : ATTRACT_MS);
+    }, IDLE_MS);
   }
   document.addEventListener('pointerdown', touch);
 

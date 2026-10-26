@@ -271,26 +271,6 @@ textarea {
 }
 .ag-sub { font-family: var(--f-display); font-size: clamp(16px, 1.9vw, 21px); color: var(--ink); opacity: 0.85; letter-spacing: 0.02em; }
 
-/* ---------- Idle attract screen ---------- */
-.attract {
-  position: fixed; inset: 0; z-index: 30;
-  background: radial-gradient(ellipse 90% 70% at 50% 55%, #0e0b14, #040306);
-  opacity: 0; transition: opacity 1.6s var(--slow);
-}
-.attract.on { opacity: 1; }
-.attract[hidden] { display: none; }
-.attract canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-.attract-copy {
-  position: absolute; left: 0; right: 0; bottom: calc(8vh + env(safe-area-inset-bottom, 0px));
-  text-align: center; pointer-events: none;
-}
-.attract-kicker { margin: 0 0 6px; font-size: 12px; letter-spacing: 0.4em; text-transform: uppercase; color: var(--muted); opacity: 0.7; }
-.attract-title {
-  margin: 0; font-family: var(--f-display); font-style: italic; font-weight: 400;
-  font-size: clamp(40px, 6.5vw, 84px); color: var(--amber-hi); letter-spacing: 0.01em;
-  animation: breathe 6.5s ease-in-out infinite;
-}
-
 /* ---------- Toast ---------- */
 .toast {
   position: fixed; left: 50%; bottom: calc(28px + env(safe-area-inset-bottom, 0px));
@@ -312,10 +292,10 @@ textarea {
   .ed-title { font-size: 18px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sky::before, .prompt, .btn.primary, .mini, .ag-title, .attract-title { animation: none; }
+  .sky::before, .prompt, .btn.primary, .mini, .ag-title { animation: none; }
   .screen:not([hidden]), .panel:not([hidden]), .modal-back:not([hidden]), .modal-back:not([hidden]) .modal { animation-duration: 0.01s; }
   .toast, .choices button, .sw, .chip, .frame { transition: none; }
-  .attract, .afterglow { transition-duration: 0.3s; }
+  .afterglow { transition-duration: 0.3s; }
 }
 
 /* ---------- Lantern shapes ---------- */
