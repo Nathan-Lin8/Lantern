@@ -61,6 +61,13 @@
       50%      { opacity: 1;    text-shadow: 0 0 0.25em rgba(255,190,110,0.8), 0 0 1em rgba(244,166,74,0.45), 0 0 2em rgba(244,140,60,0.2); }
     }
     @media (prefers-reduced-motion: reduce) { .cta { animation: none; opacity: 0.9; } }
+    .sound-hint {
+      position: fixed; right: 16px; bottom: 16px; padding: 8px 16px; border-radius: 999px;
+      font: 14px/1.4 ui-sans-serif, system-ui, sans-serif; color: #ffe7c2;
+      background: rgba(20, 16, 24, 0.85); border: 1px solid #463e50;
+      transition: opacity 0.8s; animation: cta-breathe 4s ease-in-out infinite; pointer-events: none;
+    }
+    .sound-hint.hide { opacity: 0; animation: none; }
     .conn { position: fixed; right: 12px; top: 12px; width: 10px; height: 10px; border-radius: 50%; background: #ef6b6b; opacity: 0; transition: opacity 0.3s; }
     .conn.down { opacity: 1; }
   </style>
@@ -70,10 +77,10 @@
   <h1 class="cta" id="cta"><span>Leave a Light</span></h1>
   <div class="notice" id="notice" hidden></div>
   <div class="conn" id="conn" title="Not connected"></div>
+  <div class="sound-hint hide" id="soundHint">♪ Click or press any key for sound</div>
 
   <div class="overlay" id="help">
     <p><b>Projector</b> · <kbd>F</kbd> fullscreen · <kbd>C</kbd> calibrate · <kbd>D</kbd> detailed / flat look · <kbd>T</kbd> title · <kbd>A</kbd> ambient motion · <kbd>W</kbd> light between lanterns · <kbd>R</kbd> preview a reveal · <kbd>M</kbd> sound</p>
-    <p class="status">Click or press any key once to start the sound.</p>
 
     <form class="row" id="adminForm" hidden autocomplete="off">
       <input id="adminCode" type="password" placeholder="Admin code" aria-label="Admin code">

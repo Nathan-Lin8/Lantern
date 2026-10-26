@@ -200,6 +200,20 @@ button { cursor: pointer; }
 .frame #fx { pointer-events: none; border-radius: 0; }
 .stage.draw #ink { cursor: crosshair; }
 .stage.text #ink { cursor: move; }
+.text-done {
+  position: absolute; z-index: 2; min-height: 48px; min-width: 48px; padding: 0 16px;
+  border: 0; border-radius: 999px; font-weight: 600; font-size: 16px; color: var(--amber-ink);
+  background: radial-gradient(120% 140% at 50% 0%, #ffe2b8, var(--amber) 65%);
+  box-shadow: 0 0 18px rgba(244, 166, 74, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
+  touch-action: manipulation; animation: fade-in 0.5s var(--slow) both;
+}
+.text-done[hidden], .text-tag[hidden] { display: none; }
+.text-tag {
+  position: absolute; z-index: 2; pointer-events: none; white-space: nowrap;
+  padding: 5px 12px; border-radius: 999px; font-size: 13px; font-weight: 500;
+  background: rgba(12, 10, 16, 0.75); color: var(--ink); border: 1px solid var(--line-2);
+  animation: fade-in 0.5s var(--slow) both;
+}
 .hint { position: absolute; left: 0; right: 0; bottom: 10px; margin: 0; text-align: center; font-size: 13px; color: var(--muted); letter-spacing: 0.02em; pointer-events: none; }
 
 .tools {

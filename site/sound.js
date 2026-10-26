@@ -6,15 +6,16 @@
 (() => {
   // A major-pentatonic world (D), so any notes that overlap still sound consonant
   const midi = n => 440 * Math.pow(2, (n - 69) / 12);
+  // Voiced around middle C so laptop and projector speakers can actually reproduce them
   const CHORDS = [
-    [50, 57, 62, 66],      // D  A  D  F#
-    [47, 54, 59, 62],      // B  F# B  D
-    [43, 50, 55, 59],      // G  D  G  B
-    [45, 52, 57, 64]       // A  E  A  E
+    [62, 69, 74, 78],      // D  A  D  F#
+    [59, 66, 71, 74],      // B  F# B  D
+    [55, 62, 67, 71],      // G  D  G  B
+    [57, 64, 69, 76]       // A  E  A  E
   ];
   const BELLS = [74, 76, 78, 81, 83, 86, 88, 90];    // D5 .. F#6
 
-  let ac = null, master, dry, wet, padBus, padFilter, cfg = {};
+  let ac = null, meter = null, master, dry, wet, padBus, padFilter, cfg = {};
   let padTimer = null, bellTimer = null, chordIdx = 0, voices = [], musicOn = true, started = false;
 
   // Reverb from a generated impulse: decaying stereo noise
@@ -35,35 +36,40 @@
     if (!AC) return false;
     ac = new AC();
     master = ac.createGain(); master.gain.value = cfg.MASTER_VOLUME;
-    master.connect(ac.destination);
+    const limiter = ac.createDynamicsCompressor();      // keeps pad + chime from ever clipping
+    limiter.threshold.value = -10; limiter.knee.value = 8; limiter.ratio.value = 6;
+    limiter.attack.value = 0.005; limiter.release.value = 0.3;
+    master.connect(limiter); limiter.connect(ac.destination);
+    meter = ac.createAnalyser(); meter.fftSize = 1024;
+    master.connect(meter);
     const rev = makeReverb();
     wet = ac.createGain(); wet.gain.value = cfg.REVERB;
     dry = ac.createGain(); dry.gain.value = 1;
     dry.connect(master); dry.connect(rev); rev.connect(wet); wet.connect(master);
 
     padFilter = ac.createBiquadFilter();
-    padFilter.type = 'lowpass'; padFilter.frequency.value = 700; padFilter.Q.value = 0.4;
+    padFilter.type = 'lowpass'; padFilter.frequency.value = 1500; padFilter.Q.value = 0.5;
     padBus = ac.createGain(); padBus.gain.value = cfg.MUSIC_VOLUME;
     padFilter.connect(padBus); padBus.connect(dry);
     // the filter opens and closes very slowly, like breathing
     const lfo = ac.createOscillator(), lfoAmt = ac.createGain();
-    lfo.frequency.value = 1 / 11; lfoAmt.gain.value = 260;
+    lfo.frequency.value = 1 / 11; lfoAmt.gain.value = 600;
     lfo.connect(lfoAmt); lfoAmt.connect(padFilter.frequency); lfo.start();
     return true;
   }
 
   // One pad chord: each note is two slightly detuned soft oscillators, faded in and out slowly
-  function playChord() {
-    const now = ac.currentTime, hold = cfg.CHORD_S, fade = hold * 0.55;
+  function playChord(first = false) {
+    const now = ac.currentTime, hold = cfg.CHORD_S, fade = hold * 0.55, rise = first ? 1.5 : fade;
     const chord = CHORDS[chordIdx++ % CHORDS.length];
     chord.forEach((n, i) => {
       for (const det of [-5, 5]) {
         const o = ac.createOscillator(), g = ac.createGain();
         o.type = i === 0 ? 'sine' : 'triangle';
         o.frequency.value = midi(n); o.detune.value = det + (Math.random() * 4 - 2);
-        const peak = (i === 0 ? 0.22 : 0.12) / chord.length;
+        const peak = i === 0 ? 0.3 : 0.18;
         g.gain.setValueAtTime(0.0001, now);
-        g.gain.linearRampToValueAtTime(peak, now + fade);
+        g.gain.linearRampToValueAtTime(peak, now + rise);
         g.gain.setValueAtTime(peak, now + hold);
         g.gain.linearRampToValueAtTime(0.0001, now + hold + fade);
         o.connect(g); g.connect(padFilter);
@@ -103,7 +109,8 @@
   function startMusic() {
     if (started) return;
     started = true;
-    playChord();
+    playChord(true);
+    bell(midi(BELLS[2]), { vol: cfg.BELL_VOLUME * 2, pan: 0 });   // a soft first note so you know it's on
     padTimer = setInterval(() => { if (musicOn) playChord(); }, cfg.CHORD_S * 1000);
     scheduleBell();
   }
@@ -123,6 +130,15 @@
       if (ac.state === 'suspended') ac.resume().then(go).catch(() => {}); else go();
     },
     get ready() { return !!ac && ac.state === 'running'; },
+    get state() { return ac ? ac.state : 'unsupported'; },
+    // Current output loudness (RMS, 0..1), for checking that sound is really playing
+    level() {
+      if (!meter) return 0;
+      const d = new Float32Array(meter.fftSize);
+      meter.getFloatTimeDomainData(d);
+      let sum = 0; for (const v of d) sum += v * v;
+      return Math.sqrt(sum / d.length);
+    },
     get on() { return musicOn; },
     // M key: fade everything in or out
     toggle() {

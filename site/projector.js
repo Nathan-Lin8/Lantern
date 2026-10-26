@@ -100,13 +100,13 @@
   const SOUND = {
     ENABLED: true,
     MASTER_VOLUME: 0.8,
-    MUSIC_VOLUME: 0.5,            // the slow ambient pad
+    MUSIC_VOLUME: 0.35,           // the slow ambient pad
     CHORD_S: 12,                  // seconds per pad chord
     REVERB: 0.55,                 // reverb amount (0..1)
-    BELL_VOLUME: 0.05,            // faint random high bells
+    BELL_VOLUME: 0.08,            // faint random high bells
     BELL_MIN_S: 5,
     BELL_MAX_S: 14,
-    ARRIVE_VOLUME: 0.035,         // a whisper of a note when a wisp reaches a lantern...
+    ARRIVE_VOLUME: 0.05,          // a whisper of a note when a wisp reaches a lantern...
     ARRIVE_CHANCE: 0.5,           // ...on this fraction of arrivals
     CHIME_VOLUME: 0.32            // the chime when a visitor's light arrives from the iPad
   };
@@ -141,6 +141,10 @@
   });
   const embers = A.createEmbers({ count: CONFIG.EMBERS });
   Sound.setup(SOUND);
+  // "Click for sound" stays up until the browser lets audio play
+  const soundHint = $('#soundHint');
+  const checkSound = () => { soundHint.classList.toggle('hide', !SOUND.ENABLED || Sound.ready || Sound.state === 'unsupported'); };
+  setInterval(checkSound, 500); checkSound();
   const demo = +new URL(location.href).searchParams.get('demo') || 0;
 
   // ---------- Size ----------

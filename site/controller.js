@@ -27,7 +27,7 @@
   };
   const HINTS = {
     draw: 'Draw with your finger or Apple Pencil',
-    text: 'Drag on the lantern to move your text',
+    text: 'Type your message, then drag the box to place it',
     color: 'This is how the lantern will glow'
   };
   const MODE_NAMES = { draw: 'Draw', text: 'Add text', color: 'Change the light' };
@@ -39,7 +39,7 @@
   const ed = {
     base: null, strokes: [], color: '#f4a64a',
     brush: { color: INK[0], size: 16, erase: false },
-    text: { value: '', size: 96, color: INK[0], font: 'hand', dx: 0, dy: 0 }
+    text: { value: '', size: 96, color: INK[0], font: 'hand', dx: 0, dy: 0, box: null, placing: false }
   };
 
   // ---------- Startup: setup check -> wall ----------
@@ -328,7 +328,7 @@
     sizeCanvases(l);
     ed.strokes = []; ed.base = null; ed.color = l.color;
     ed.brush.erase = false;
-    ed.text = { ...ed.text, value: '', dx: 0, dy: 0, size: Math.round(96 * Math.min(W, H) / 600) };
+    ed.text = { ...ed.text, value: '', dx: 0, dy: 0, box: null, placing: false, size: Math.round(96 * Math.min(W, H) / 600) };
 
     $('#edTitle').textContent = `Lantern ${id} · ${MODE_NAMES[m]}`;
     ['draw', 'text', 'color'].forEach(k => { $('#tools-' + k).hidden = k !== m; });
@@ -405,6 +405,7 @@
   // Text is centered on the letters you actually see (not the font's em box), wrapped to the lantern's
   // usable width (narrower for round shapes), and shrunk below the chosen size only if it wouldn't fit
   function drawText(ctx, t) {
+    t.box = null;
     if (!t.value.trim()) return;
     ctx.save();
     ctx.fillStyle = t.color; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
@@ -421,12 +422,21 @@
     }
     const m = ctx.measureText(lines.join(' ') || 'M');
     const asc = m.actualBoundingBoxAscent || size * 0.7, desc = m.actualBoundingBoxDescent || size * 0.2;
-    const baseline0 = H / 2 + t.dy - ((lines.length - 1) * lh + asc + desc) / 2 + asc;
-    lines.forEach((ln, i) => {
+    const blockH = (lines.length - 1) * lh + asc + desc;
+    const metrics = lines.map(ln => {
       const lm = ctx.measureText(ln);
+      const half = lm.actualBoundingBoxRight != null ? (lm.actualBoundingBoxRight + lm.actualBoundingBoxLeft) / 2 : lm.width / 2;
       const shift = lm.actualBoundingBoxRight != null ? (lm.actualBoundingBoxRight - lm.actualBoundingBoxLeft) / 2 : 0;
-      ctx.fillText(ln, W / 2 + t.dx - shift, baseline0 + i * lh);
+      return { half, shift };
     });
+    const halfW = Math.max(...metrics.map(q => q.half));
+    // keep the whole block on the lantern while it's dragged around
+    const pad = Math.max(6, 22 * W / (frame.clientWidth || W));    // room for the dashed box around it
+    t.dx = Math.max(-(W / 2 - halfW - pad), Math.min(W / 2 - halfW - pad, t.dx));
+    t.dy = Math.max(-(H / 2 - blockH / 2 - pad), Math.min(H / 2 - blockH / 2 - pad, t.dy));
+    const top = H / 2 + t.dy - blockH / 2;
+    lines.forEach((ln, i) => ctx.fillText(ln, W / 2 + t.dx - metrics[i].shift, top + asc + i * lh));
+    t.box = { x: W / 2 + t.dx - halfW, y: top, w: halfW * 2, h: blockH };
     ctx.restore();
   }
 
@@ -439,7 +449,61 @@
     drawText(ictx, ed.text);
     ed.strokes.forEach(s => drawStroke(ictx, s, 0));
     ictx.restore();
+    textUi();
   }
+
+  // ---------- Text placement: dashed box, "Drag to move" tag and a ✓ Done button ----------
+  // Drawn on the fx layer (never part of the PNG that gets sent)
+  const textDone = $('#textDone'), textTag = $('#textTag');
+  let antsOn = false;
+  function textUi() {
+    const b = mode === 'text' && ed.text.placing && ed.text.box;
+    textDone.hidden = textTag.hidden = !b;
+    $('#hint').textContent = mode !== 'text' ? HINTS[mode]
+      : !ed.text.box ? HINTS.text
+      : ed.text.placing ? 'Drag the box to move your text · tap ✓ Done when it looks right'
+      : 'Tap your text to move it again';
+    if (!b) { if (!sending) clearFx(); return; }
+    const k = frame.clientWidth / W, B = ed.text.box, P = 14;
+    const x = B.x * k - P, y = B.y * k - P, w = B.w * k + 2 * P, h = B.h * k + 2 * P;
+    const fw = frame.clientWidth, fh = frame.clientHeight;
+    Object.assign(textDone.style, { left: Math.min(fw - 50, Math.max(-6, x + w - 26)) + 'px', top: Math.max(-6, Math.min(fh - 50, y - 26)) + 'px' });
+    Object.assign(textTag.style, { left: Math.max(0, x) + 'px', top: Math.min(fh - 30, y + h + 8) + 'px' });
+    paintBox(x, y, w, h);
+    if (!antsOn && !Ambient.reduceMotion.matches) { antsOn = true; requestAnimationFrame(ants); }
+  }
+  let boxRect = null;
+  function paintBox(x, y, w, h, offset = 0) {
+    boxRect = [x, y, w, h];
+    const d = Math.min(2, window.devicePixelRatio || 1);
+    const cw = Math.round(frame.clientWidth * d), ch = Math.round(frame.clientHeight * d);
+    if (fx.width !== cw || fx.height !== ch) { fx.width = cw; fx.height = ch; }
+    const g = fx.getContext('2d');
+    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, fx.width, fx.height);
+    g.setTransform(d, 0, 0, d, 0, 0);
+    g.lineWidth = 2; g.setLineDash([9, 7]); g.lineDashOffset = -offset;
+    g.beginPath(); Ambient.rrect(g, x, y, w, h, 12);
+    g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = 4; g.stroke();     // dark edge so it shows on light lanterns
+    g.strokeStyle = 'rgba(255,248,236,0.95)'; g.lineWidth = 2; g.stroke();
+    g.setLineDash([]);
+    for (const [cx, cy] of [[x, y], [x + w, y], [x, y + h], [x + w, y + h]]) {   // corner dots
+      g.beginPath(); g.arc(cx, cy, 5, 0, Math.PI * 2);
+      g.fillStyle = '#fff8ec'; g.fill(); g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = 1.5; g.stroke();
+    }
+  }
+  // Marching dashes, slowly, so the box reads as "you can move this"
+  function ants(now) {
+    if (mode !== 'text' || !ed.text.placing || !boxRect || sending) { antsOn = false; return; }
+    paintBox(...boxRect, (now / 60) % 16);
+    requestAnimationFrame(ants);
+  }
+  function clearFx() {
+    boxRect = null;
+    fx.getContext('2d').clearRect(0, 0, fx.width, fx.height);
+  }
+  function placeText(on) { ed.text.placing = on; textUi(); }
+  textDone.addEventListener('click', () => { placeText(false); touch(); });
+  textDone.addEventListener('pointerdown', e => e.stopPropagation());
 
   function fitFrame() {
     const r = stage.getBoundingClientRect();
@@ -467,7 +531,7 @@
   // Long press on the drawing shouldn't pop up Save Image / Copy
   ['contextmenu', 'selectstart'].forEach(evt => stage.addEventListener(evt, e => e.preventDefault()));
 
-  let active = null, cur = null, drag = null, sawPen = false;
+  let active = null, cur = null, drag = null, sawPen = false, sending = false;
   const pt = e => {
     const r = ink.getBoundingClientRect();
     return {
@@ -489,8 +553,9 @@
       cur = { color: ed.brush.color, size: ed.brush.size, erase: ed.brush.erase, points: [p] };
       ed.strokes.push(cur);
       ictx.save(); facePath(ictx); ictx.clip(); drawStroke(ictx, cur, 0); ictx.restore();
-    } else if (mode === 'text') {
+    } else if (mode === 'text' && ed.text.box) {
       drag = { x: p.x, y: p.y, dx: ed.text.dx, dy: ed.text.dy };
+      if (!ed.text.placing) placeText(true);
     }
   });
 
@@ -545,12 +610,12 @@
 
   $('#eraser').addEventListener('click', () => { ed.brush.erase = !ed.brush.erase; syncControls(); });
   $('#size').addEventListener('input', e => { ed.brush.size = +e.target.value; syncControls(); touch(); });
-  $('#tsize').addEventListener('input', e => { ed.text.size = +e.target.value; renderInk(); touch(); });
-  $('#txt').addEventListener('input', e => { ed.text.value = e.target.value; renderInk(); touch(); });
+  $('#tsize').addEventListener('input', e => { ed.text.size = +e.target.value; ed.text.placing = true; renderInk(); touch(); });
+  $('#txt').addEventListener('input', e => { ed.text.value = e.target.value; ed.text.placing = true; renderInk(); touch(); });
   $('#customGlow').addEventListener('input', e => { ed.color = e.target.value; renderBg(); syncControls(); touch(); });
   $('#undo').addEventListener('click', () => { ed.strokes.pop(); renderInk(); syncControls(); });
   const clearAll = () => {
-    ed.strokes = []; ed.base = null; ed.text.value = ''; ed.text.dx = ed.text.dy = 0;
+    ed.strokes = []; ed.base = null; ed.text.value = ''; ed.text.dx = ed.text.dy = 0; ed.text.placing = false;
     renderInk(); syncControls();
   };
   $('#clearDraw').addEventListener('click', clearAll);
@@ -600,6 +665,7 @@
     if (current == null) return;
     const id = current;
     sendBtn.disabled = true; sendBtn.textContent = 'Sending…';
+    sending = true; placeText(false);
     frame.classList.add('sent');
     const showUntil = performance.now() + sendSparkle() * 0.85;
     try {
@@ -619,6 +685,7 @@
       frame.classList.remove('sent');
       toast(err.message, true);
     } finally {
+      sending = false;
       sendBtn.disabled = false; sendBtn.textContent = 'Send to wall';
     }
   });
