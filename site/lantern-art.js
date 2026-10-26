@@ -1,51 +1,8 @@
-// Shared lantern drawing for the iPad and projector pages:
-// shape outlines, the detailed paper-lantern look (iPad only), and the rising sparkle burst.
+// Shared lantern drawing for the iPad and projector pages: the detailed paper-lantern look.
+// Needs ambient.js (shape outlines, colors and the sparkle burst) loaded first.
 (() => {
-  const ROUND = new Set(['circle', 'oval', 'oblong']);
-  const OB_END = 0.46;                 // oblong: width of the top/bottom openings, as a fraction of full width
+  const { ROUND, OB_END, rrect, halfWidth, facePath, rgb, mix, css, WHITE, BLACK } = window.Ambient;
   const OFF_PAPER = [78, 70, 84];      // unlit paper
-  const WHITE = [255, 255, 255], BLACK = [0, 0, 0];
-  const WARM = [255, 241, 214];        // sparkle color for an unlit lantern
-
-  const rgb = c => (!c || c === 'off') ? null : [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
-  const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
-  const css = (c, a = 1) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
-
-  // Rounded rectangle path. ctx.roundRect only exists on iPadOS 16+ / Safari 16+, so older iPads get arcTo.
-  function rrect(ctx, x, y, w, h, r) {
-    if (ctx.roundRect) return ctx.roundRect(x, y, w, h, r);
-    r = Math.max(0, Math.min(r, w / 2, h / 2));
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  }
-
-  // ---------- Shapes ----------
-  // Half-width of the body at height v (0 = top, 1 = bottom), as a fraction of half the box width
-  function halfWidth(shape, v) {
-    const u = 2 * v - 1, s = Math.max(0, 1 - u * u);
-    if (shape === 'circle' || shape === 'oval') return Math.sqrt(s);
-    if (shape === 'oblong') return OB_END + (1 - OB_END) * Math.pow(s, 0.6);
-    return 1;
-  }
-
-  function facePath(ctx, shape, x, y, w, h) {
-    ctx.beginPath();
-    if (shape === 'circle' || shape === 'oval') {
-      ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
-    } else if (shape === 'oblong') {
-      // Sampled more densely near the ends, where the curve turns fastest
-      const N = 48, cx = x + w / 2, vAt = i => (1 - Math.cos(Math.PI * i / N)) / 2;
-      for (let i = 0; i <= N; i++) { const v = vAt(i); ctx.lineTo(cx + w / 2 * halfWidth(shape, v), y + v * h); }
-      for (let i = N; i >= 0; i--) { const v = vAt(i); ctx.lineTo(cx - w / 2 * halfWidth(shape, v), y + v * h); }
-      ctx.closePath();
-    } else {
-      rrect(ctx, x, y, w, h, Math.min(w, h) * 0.045);
-    }
-  }
 
   // ---------- Detailed lantern (iPad) ----------
   // Room the detailed drawing needs around the lantern's box: glow at the sides, string above, tassel below
@@ -227,77 +184,7 @@
     return { c, mg, w, h, dpr };
   }
 
-  // ---------- Sparkle burst ----------
-  const reduceMotion = window.matchMedia ? matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
-  const dots = new Map();
-
-  function dot(c) {
-    const key = c.join();
-    if (dots.has(key)) return dots.get(key);
-    const S = 48, cv = document.createElement('canvas');
-    cv.width = cv.height = S;
-    const g = cv.getContext('2d'), gr = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
-    gr.addColorStop(0, css(mix(c, WHITE, 0.7))); gr.addColorStop(0.22, css(mix(c, WHITE, 0.25), 0.9));
-    gr.addColorStop(0.55, css(c, 0.25)); gr.addColorStop(1, css(c, 0));
-    g.fillStyle = gr; g.fillRect(0, 0, S, S);
-    dots.set(key, cv);
-    return cv;
-  }
-
-  let star = null;
-  function starDot() {
-    if (star) return star;
-    const S = 48, h = S / 2;
-    star = document.createElement('canvas');
-    star.width = star.height = S;
-    const g = star.getContext('2d');
-    g.drawImage(dot(WHITE), S * 0.2, S * 0.2, S * 0.6, S * 0.6);
-    g.fillStyle = 'rgba(255,255,255,0.85)';
-    g.beginPath(); g.moveTo(h, 0); g.lineTo(h + 1.6, h); g.lineTo(h, S); g.lineTo(h - 1.6, h); g.fill();
-    g.beginPath(); g.moveTo(0, h); g.lineTo(h, h + 1.6); g.lineTo(S, h); g.lineTo(h, h - 1.6); g.fill();
-    return star;
-  }
-
-  // New burst rising from the bottom of a lantern. Returns null when the viewer prefers reduced motion.
-  function burst(shape, color, short = false) {
-    if (reduceMotion.matches) return null;
-    const count = short ? 22 : 44, parts = [];
-    for (let i = 0; i < count; i++) {
-      const v0 = 0.8 + Math.random() * 0.17, delay = Math.random() * 0.25;
-      parts.push({
-        v0, delay,
-        u0: 0.5 + (Math.random() * 2 - 1) * 0.45 * halfWidth(shape, v0),
-        life: 0.5 + Math.random() * (0.5 - delay),   // delay + life <= 1, so every particle ends on time
-        rise: (short ? 0.35 : 0.55) + Math.random() * 0.5,
-        size: 0.06 + Math.random() * 0.07,
-        amp: 0.02 + Math.random() * 0.05, freq: 1 + Math.random() * 1.5, ph: Math.random() * 6.283,
-        white: Math.random() < 0.3
-      });
-    }
-    return { t0: performance.now(), dur: short ? 750 : 1200, parts, color: rgb(color) || WARM };
-  }
-
-  // Draws one frame of a burst over the box (x, y, w, h). Returns false once it has finished.
-  // scale > 1 makes the particles bigger (the projected wall is seen from across the room).
-  function drawBurst(ctx, b, x, y, w, h, now, scale = 1) {
-    const T = (now - b.t0) / b.dur;
-    if (T >= 1) return false;
-    const m = Math.min(w, h), tint = dot(b.color), st = starDot();
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    for (const p of b.parts) {
-      const t = (T - p.delay) / p.life;
-      if (t <= 0 || t >= 1) continue;
-      const e = 1 - Math.pow(1 - t, 1.7);
-      const px = x + w * (p.u0 + p.amp * Math.sin(p.ph + t * p.freq * 6.283) * (0.3 + t));
-      const py = y + h * (p.v0 - p.rise * e);
-      const s = m * p.size * scale * (1 - 0.35 * t);
-      ctx.globalAlpha = Math.min(1, t / 0.12) * Math.pow(1 - t, 1.2) * (0.75 + 0.25 * Math.sin(t * 24 + p.ph));
-      ctx.drawImage(p.white ? st : tint, px - s / 2, py - s / 2, s, s);
-    }
-    ctx.restore();
-    return true;
-  }
-
+  // Shape paths and the sparkle burst live in ambient.js; re-exported here for the editor
+  const { burst, drawBurst, reduceMotion } = window.Ambient;
   window.LanternArt = { ROUND, halfWidth, facePath, margins, drawDetailed, sprite, burst, drawBurst, reduceMotion };
 })();

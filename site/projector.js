@@ -1,19 +1,125 @@
 // Projector display: draws every lantern's light color + latest PNG at its calibrated spot.
-// Changes arrive live from Supabase and cross-fade in with a sparkle rising from the bottom of the lantern.
+// Between visitors the wall runs "attract mode" (see ambient.js): every lantern breathes and flickers like a
+// candle, untouched lanterns drift through warm hues, and wisps of light travel between lanterns.
+// When a visitor sends something, that lantern blooms in with rising sparkles and a ring of their color
+// ripples out to its neighbors, then the wall settles back into attract mode.
 // Two looks, switched with D: 'detailed' draws full paper lanterns (for a wall without physical lanterns yet);
-// 'flat' fills only each face with flat bright color, keeping everything else black, for projecting onto real lanterns.
-// Between visitors the wall idles invitingly: lanterns breathe out of step, embers drift upward,
-// and now and then a lantern sparkles by itself. A toggles that motion, T toggles the title.
+// 'flat' fills only each face, keeping everything else black, for projecting onto real lanterns.
+// projector.html?demo=12 shows 12 local lanterns without connecting to Supabase (for previewing motion).
 (() => {
+  // ================================================================================================
+  // CONFIG: everything worth tuning on the real wall. Times are in seconds unless they end in _MS.
+  // Distances and speeds are in "wall widths" (1 = the full projected width).
+  // ================================================================================================
+  const CONFIG = {
+    // Light between lanterns.
+    //   true:  wisps and their trails fly through the black space between lanterns.
+    //   false: light only appears inside lantern shapes; travel shows as one lantern dimming while the next brightens.
+    // Press W on the projector to flip it live (remembered on this laptop) and compare both on the real wall.
+    DRAW_BETWEEN: true,
+
+    // Breathing: each lantern pulses on its own slow cycle, picked between these, so the wall shimmers
+    BREATH_MIN_S: 4,
+    BREATH_MAX_S: 7,
+    BREATH_DEPTH: 0.3,            // how far a lantern dims at the bottom of a breath (0 = none, 0.3 = to 70%)
+    CONTENT_BREATH_DEPTH: 0.08,   // the same for a lantern holding a drawing or text (keep small: content stays readable)
+
+    // Candle flicker inside each lantern
+    FLICKER_DEPTH: 0.05,          // brightness noise (0..1)
+    FLICKER_SPEED: 2.4,           // higher = quicker flicker
+    FLAME_ALPHA: 0.22,            // brightness of the soft warm hotspot that wanders inside each lantern
+    FLAME_WANDER: 0.06,           // how far the hotspot wanders (fraction of the lantern)
+
+    // Slow color drift for lanterns nobody has customized (color still matches layout.js, no drawing)
+    DRIFT_COLORS: ['#f4a64a', '#ec7f8f', '#f2c35b', '#f59a6a'],   // amber -> rose -> gold -> peach -> ...
+    DRIFT_PERIOD_S: 180,          // one full trip through the colors
+    DRIFT_AMOUNT: 0.8,            // 0 = keep layout.js colors, 1 = pure drift colors
+
+    // Visitor content always wins: ambient effects on a lantern with a drawing/text are scaled by this
+    CONTENT_AMBIENT: 0.3,
+
+    // How light settles: rise time after something arrives, and the slower fade back to calm
+    ATTACK_S: 0.4,
+    SETTLE_S: 2.4,
+
+    // Wisps: small glowing orbs with soft trails, drifting from one lantern to a neighbor
+    WISP_SPEED: 0.075,            // wall widths per second (flight time is clamped to the next two values)
+    WISP_MIN_S: 2.4,
+    WISP_MAX_S: 6,
+    WISP_ARC: 0.35,               // how much the path bows (fraction of the distance)
+    WISP_WOBBLE: 0.012,           // noise wobble along the path (wall widths)
+    WISP_SIZE: 0.022,             // orb size, fraction of wall height
+    WISP_TRAIL_S: 0.8,            // trail length in seconds
+    WISP_BRIGHTNESS: 0.9,         // 0..1
+    LAUNCH_GLOW: 0.15,            // the sending lantern brightens a little as a wisp leaves
+    ARRIVE_GLOW: 0.6,             // the receiving lantern brightens this much
+    ARRIVE_TINT: 0.45,            // ...and takes on this much of the wisp's color, then settles
+    TRAVEL_DIM: 0.4,              // sender dims while a wisp travels (full strength when DRAW_BETWEEN is off)
+    TRAVEL_GLOW: 0.35,            // receiver brightens in anticipation (same)
+
+    // Ripples: a wave of light spreading lantern by lantern
+    RIPPLE_SPEED: 0.32,           // wall widths per second
+    RIPPLE_GLOW: 0.55,
+    RIPPLE_TINT: 0.3,
+
+    // Choreographer: picks a sequence every SEQ_MIN_S..SEQ_MAX_S, never the same one twice in a row
+    SEQ_FIRST_S: 3,
+    SEQ_MIN_S: 5,
+    SEQ_MAX_S: 12,
+    MAX_SEQS: 2,                  // sequences allowed to overlap
+    MAX_WISPS: 8,                 // never more than this many wisps in the air at once
+    WISP_EVERY_MIN_S: 1.5,        // plus a stray wisp between two neighbors every MIN..MAX seconds
+    WISP_EVERY_MAX_S: 4,
+    SEQ_WEIGHTS: { wisp: 1, relay: 0.8, ripple: 0.7, conversation: 0.9 },   // 0 turns one off
+    CONVERSATION_MIN: 3,          // wisps passed back and forth in a conversation
+    CONVERSATION_MAX: 5,
+    RELAY_MIN: 3,                 // hops for a wisp relayed across the wall
+    RELAY_MAX: 4,
+
+    // Reveal when a visitor sends something
+    REVEAL_BLOOM_MS: 1100,        // new color / drawing blooms in over this long
+    REVEAL_QUIET_S: 7,            // attract sequences pause this long around a reveal
+    REVEAL_RING_DELAY_S: 0.5,     // then a ring of the visitor's color ripples out...
+    REVEAL_RIPPLE_SPEED: 0.55,
+    REVEAL_GLOW: 0.8,             // ...and the neighbors glow this much
+    REVEAL_TINT: 0.6,             // ...in this much of the visitor's color
+    REVEAL_SPARKS: 2,             // quick wisps to the nearest neighbors (only when DRAW_BETWEEN is on)
+    SPARKLE_SCALE: 1.5,           // sparkle size on the wall (seen from across the room)
+
+    // Background: glowing embers drifting up the wall, and a lantern sparkling by itself now and then
+    EMBERS: 70,                   // how many (0 = none)
+    EMBER_LEVEL_DETAILED: 1,      // ember brightness in the detailed look
+    EMBER_LEVEL_FLAT: 0.45,       // ember brightness in the flat look (projected onto a real wall)
+    FLOOR_GLOW: 1,                // warm light pooling up from the floor, detailed look only (0 = off)
+    IDLE_SPARKLE_MIN_S: 5,        // a random lantern sparkles every MIN..MAX seconds
+    IDLE_SPARKLE_MAX_S: 10
+  };
+
+  // Sound, generated live (sound.js). The browser needs one click or key press on the projector page before it can play,
+  // or start Chrome with --autoplay-policy=no-user-gesture-required. M mutes / unmutes.
+  const SOUND = {
+    ENABLED: true,
+    MASTER_VOLUME: 0.8,
+    MUSIC_VOLUME: 0.5,            // the slow ambient pad
+    CHORD_S: 12,                  // seconds per pad chord
+    REVERB: 0.55,                 // reverb amount (0..1)
+    BELL_VOLUME: 0.05,            // faint random high bells
+    BELL_MIN_S: 5,
+    BELL_MAX_S: 14,
+    ARRIVE_VOLUME: 0.035,         // a whisper of a note when a wisp reaches a lantern...
+    ARRIVE_CHANCE: 0.5,           // ...on this fraction of arrivals
+    CHIME_VOLUME: 0.32            // the chime when a visitor's light arrives from the iPad
+  };
+
   const $ = s => document.querySelector(s);
   const canvas = $('#c');
   const ctx = canvas.getContext('2d');
+  const A = window.Ambient;
 
-  const FADE_MS = 600;
-
-  // id -> { lantern, img, prev: { color, img } | null, t0, burst }
+  // id -> { lantern, img, prev: { color, img } | null, t0, burst, custom }
   const views = new Map();
   const loadSeq = new Map();   // id -> latest update number, so a slow image load can't overwrite a newer one
+  const touched = new Set();   // lanterns a visitor changed while this page was open
   const LOOK_KEY = 'lw-projector-look';
   let detailed = (() => { try { return localStorage.getItem(LOOK_KEY) !== 'flat'; } catch { return true; } })();
   let calibrating = false, unlocked = false, selected = null, dragInfo = null, dirtyLayout = false;
@@ -21,14 +127,28 @@
   const savePref = (key, on) => { try { localStorage.setItem(key, on ? '1' : '0'); } catch { /* private mode */ } };
   let ambient = pref('lw-projector-ambient', true);
   let showTitle = pref('lw-projector-title', true);
+  CONFIG.DRAW_BETWEEN = pref('lw-projector-between', CONFIG.DRAW_BETWEEN);
   $('#cta').classList.toggle('hide', !showTitle);
+
+  // Lantern center across the wall (0..1), for panning sounds left / right
+  const panOf = id => { const v = views.get(id); return v ? v.lantern.proj.x + v.lantern.proj.w / 2 : 0.5; };
+  const eng = A.createEngine({
+    ...CONFIG,
+    onEvent: (type, d) => {
+      if (type === 'arrive') Sound.arrive(panOf(d.id));
+      if (type === 'reveal') Sound.chime(panOf(d.id));
+    }
+  });
+  const embers = A.createEmbers({ count: CONFIG.EMBERS });
+  Sound.setup(SOUND);
+  const demo = +new URL(location.href).searchParams.get('demo') || 0;
 
   // ---------- Size ----------
   function resize() {
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.round(innerWidth * dpr);
     canvas.height = Math.round(innerHeight * dpr);
-    requestDraw();
+    syncEngine();
   }
   addEventListener('resize', resize);
 
@@ -38,8 +158,27 @@
     n.textContent = msg || '';
     n.hidden = !msg;
   }
+  function flash(msg) {   // short status line in the help panel
+    clearTimeout(helpTimer);
+    help.classList.remove('hide');
+    status(msg);
+    if (!calibrating) helpTimer = setTimeout(() => help.classList.add('hide'), 2500);
+  }
 
   // ---------- Data ----------
+  const layoutColor = id => (window.LANTERN_LAYOUT || [])[id - 1]?.color;
+  // A lantern a visitor has customized keeps its color; the rest drift through warm hues
+  const isCustom = v => !!v.img || touched.has(v.lantern.id) || v.lantern.color !== (v.startColor || layoutColor(v.lantern.id));
+
+  // Feeds lantern positions and colors to the ambient engine
+  function syncEngine() {
+    eng.setLanterns([...views.values()].map(v => ({
+      id: v.lantern.id, ...v.lantern.proj, color: v.lantern.color,
+      content: !!v.img,
+      custom: isCustom(v)
+    })), canvas.width / canvas.height);
+  }
+
   async function applyLantern(l) {
     const seq = (loadSeq.get(l.id) || 0) + 1;
     loadSeq.set(l.id, seq);
@@ -64,23 +203,27 @@
     const current = views.get(l.id);
     const changed = !current || imageChanged || current.lantern.color !== l.color || current.lantern.shape !== l.shape;
     const live = current && changed;    // a real change, not the first load
+    if (live) touched.add(l.id);
     views.set(l.id, {
       lantern: l, img,
       prev: live ? { color: current.lantern.color, img: current.img, art: current.art } : current?.prev || null,
       t0: live || !current ? performance.now() : current.t0,
-      burst: live ? LanternArt.burst(l.shape, l.color) : current?.burst || null
+      burst: live ? A.burst(l.shape, l.color) : current?.burst || null,
+      art: current?.art, startColor: current?.startColor
     });
     notice('');
-    requestDraw();
+    syncEngine();
+    if (live) eng.reveal(l.id, l.color);
   }
 
   function removeLantern(id) {
     views.delete(id);
     loadSeq.set(id, (loadSeq.get(id) || 0) + 1);
-    requestDraw();
+    syncEngine();
   }
 
   function start() {
+    if (demo) return startDemo();
     if (LW.libMissing) {
       notice("Can't reach the internet. Check the connection, then reload this page.");
       setTimeout(() => location.reload(), 15000);
@@ -103,138 +246,29 @@
     });
   }
 
-  // ---------- Ambient motion ----------
-  const PULSE_MS = 4200;        // one slow breath
-  const SPARKLE_MIN_MS = 6000, SPARKLE_MAX_MS = 11000;
-  const EMBER_COLORS = [[255, 200, 120], [244, 166, 74], [255, 230, 190], [242, 138, 46]];
-  const moving = () => ambient && !LanternArt.reduceMotion.matches;
-
-  const hexRgb = c => (!c || c === 'off') ? null : [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
-
-  // Soft round glow, white at the center, cached per color and scaled when drawn
-  const glows = new Map();
-  function glowSprite(c) {
-    const key = c.join();
-    if (glows.has(key)) return glows.get(key);
-    const S = 64, cv = document.createElement('canvas');
-    cv.width = cv.height = S;
-    const g = cv.getContext('2d'), gr = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
-    gr.addColorStop(0, `rgba(${c},1)`); gr.addColorStop(0.35, `rgba(${c},0.45)`); gr.addColorStop(1, `rgba(${c},0)`);
-    g.fillStyle = gr; g.fillRect(0, 0, S, S);
-    glows.set(key, cv);
-    return cv;
-  }
-
-  // 0..1 breath for a lantern; neighbours are offset so a slow wave rolls across the wall
-  function breath(id, now) {
-    const t = now / PULSE_MS + id * 0.17;
-    return 0.5 - 0.5 * Math.cos(t * Math.PI * 2);
-  }
-
-  // Detailed look: a halo on the wall behind the lantern that swells and fades
-  function drawHalo(v, R, now, alpha) {
-    const c = hexRgb(v.lantern.color);
-    if (!c || alpha <= 0) return;
-    const b = breath(v.lantern.id, now);
-    const cx = R.x + R.w / 2, cy = R.y + R.h / 2, s = 1.5 + 0.35 * b;
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = alpha * (0.12 + 0.22 * b);
-    ctx.drawImage(glowSprite(c), cx - R.w * s / 2, cy - R.h * s / 2, R.w * s, R.h * s);
-    ctx.restore();
-  }
-
-  // The face itself brightens on the in-breath (clipped to the face, so the flat look's wall stays black)
-  function drawPulse(v, R, now, alpha) {
-    const c = hexRgb(v.lantern.color);
-    if (!c || alpha <= 0) return;
-    const b = breath(v.lantern.id, now);
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    facePath(v.lantern.shape, R); ctx.clip();
-    ctx.globalAlpha = alpha * (detailed ? 0.16 : 0.22) * b;
-    ctx.fillStyle = `rgb(${c})`;
-    ctx.fillRect(R.x, R.y, R.w, R.h);
-    ctx.restore();
-    if (!detailed && b < 0.5) {     // flat look: dip a little below full on the out-breath
-      ctx.save();
-      facePath(v.lantern.shape, R); ctx.clip();
-      ctx.globalAlpha = alpha * 0.18 * (0.5 - b) * 2;
-      ctx.fillStyle = '#000'; ctx.fillRect(R.x, R.y, R.w, R.h);
-      ctx.restore();
+  // Local lanterns in a loose grid, cycling through layout.js shapes and colors. Nothing is saved.
+  function startDemo() {
+    const base = window.LANTERN_LAYOUT || [{ shape: 'rect', color: '#f4a64a', aspect: 0.75 }];
+    const cols = Math.ceil(Math.sqrt(demo * 16 / 9)), rows = Math.ceil(demo / cols);
+    for (let i = 0; i < demo; i++) {
+      const d = base[i % base.length], c = i % cols, r = Math.floor(i / cols);
+      const w = Math.min(0.11, 0.7 / cols, 0.6 / rows * d.aspect * 9 / 16), h = w * (16 / 9) / d.aspect;
+      const cx = (c + 0.5) / cols + (r % 2 ? 0.02 : -0.02), cy = (r + 0.5) / rows + (c % 2 ? 0.03 : -0.03);
+      views.set(i + 1, {
+        lantern: { id: i + 1, shape: d.shape, color: d.color, imageUrl: null, proj: { x: cx - w / 2, y: cy - h / 2, w, h } },
+        img: null, prev: null, t0: 0, burst: null, startColor: d.color
+      });
     }
-  }
-
-  // Embers drifting up the wall, in fractions of the screen
-  const embers = Array.from({ length: 70 }, () => newEmber(Math.random()));
-  function newEmber(y = 1.05) {
-    return {
-      x: Math.random(), y,
-      speed: 0.006 + Math.random() * 0.018,              // screen heights per second
-      size: 0.004 + Math.random() * 0.01,                // fraction of screen height
-      sway: 0.004 + Math.random() * 0.012, swayHz: 0.05 + Math.random() * 0.12, ph: Math.random() * 6.283,
-      tw: 0.4 + Math.random() * 1.2,                     // twinkle rate
-      color: EMBER_COLORS[Math.floor(Math.random() * EMBER_COLORS.length)]
-    };
-  }
-
-  let lastFrame = 0;
-  function drawBackground(now) {
-    const dt = lastFrame ? Math.min(0.1, (now - lastFrame) / 1000) : 0;
-    lastFrame = now;
-    const W = canvas.width, H = canvas.height, sec = now / 1000;
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-
-    if (detailed) {
-      // Warm light pooling up from the floor, breathing slowly
-      const b = 0.5 - 0.5 * Math.cos(sec * Math.PI * 2 / 9);
-      ctx.save();
-      ctx.translate(W / 2, H * 1.08); ctx.scale(W * 0.75, H * 0.55);
-      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
-      g.addColorStop(0, `rgba(244,150,60,${0.10 + 0.06 * b})`); g.addColorStop(0.5, `rgba(200,90,40,${0.04 + 0.025 * b})`);
-      g.addColorStop(1, 'rgba(120,40,30,0)');
-      ctx.fillStyle = g; ctx.fillRect(-1, -1, 2, 2);
-      ctx.restore();
-    }
-
-    // Flat look is projected onto a real wall, so the embers stay faint there
-    const level = detailed ? 1 : 0.45;
-    for (let i = 0; i < embers.length; i++) {
-      const e = embers[i];
-      e.y -= e.speed * dt;
-      if (e.y < -0.05) { embers[i] = newEmber(); continue; }
-      const x = (e.x + e.sway * Math.sin(sec * e.swayHz * 6.283 + e.ph)) * W;
-      const s = e.size * H;
-      const fadeIn = Math.min(1, (1.05 - e.y) / 0.25), fadeOut = Math.min(1, e.y / 0.3);   // gone before reaching the title
-      ctx.globalAlpha = level * fadeIn * fadeOut * (0.35 + 0.35 * Math.sin(sec * e.tw * 6.283 + e.ph) ** 2);
-      ctx.drawImage(glowSprite(e.color), x - s / 2, e.y * H - s / 2, s, s);
-    }
-    ctx.restore();
-  }
-
-  // Every few seconds a random lit lantern sparkles on its own, as if beckoning
-  let nextSparkle = performance.now() + SPARKLE_MIN_MS;
-  function idleSparkle(now) {
-    if (now < nextSparkle || calibrating) return;
-    nextSparkle = now + SPARKLE_MIN_MS + Math.random() * (SPARKLE_MAX_MS - SPARKLE_MIN_MS);
-    const lit = [...views.values()].filter(v => !v.burst && !v.prev && hexRgb(v.lantern.color));
-    if (!lit.length) return;
-    const v = lit[Math.floor(Math.random() * lit.length)];
-    v.burst = LanternArt.burst(v.lantern.shape, v.lantern.color, true);
+    syncEngine();
+    flash(`Demo: ${demo} local lanterns. R plays a reveal.`);
   }
 
   // ---------- Drawing ----------
-  let rafPending = false;
-  function requestDraw() {
-    if (!rafPending) { rafPending = true; requestAnimationFrame(draw); }
-  }
-
   function rectPx(r) {
     return { x: r.x * canvas.width, y: r.y * canvas.height, w: r.w * canvas.width, h: r.h * canvas.height };
   }
 
-  const facePath = (shape, R) => LanternArt.facePath(ctx, shape, R.x, R.y, R.w, R.h);
+  const facePath = (shape, R) => A.facePath(ctx, shape, R.x, R.y, R.w, R.h);
 
   // Detailed lanterns are rendered once into a sprite (kept on `holder`) and re-rendered only when they change
   function spriteFor(holder, shape, color, img, R) {
@@ -245,46 +279,106 @@
     return holder.art.sprite;
   }
 
-  function paintLantern(holder, shape, color, img, R, alpha) {
+  const fill = [0, 0, 0];
+  // One lantern's look. Lt = this frame's ambient light; bloom adds a brief swell of light under the content.
+  function paintLantern(holder, shape, color, img, R, alpha, Lt, bloom = 0, custom = true) {
     if (alpha <= 0) return;
     ctx.save();
     ctx.globalAlpha = alpha;
     if (detailed) {
       const s = spriteFor(holder, shape, color, img, R);
       ctx.drawImage(s.c, R.x - s.mg.x, R.y - s.mg.top);
-    } else {
-      facePath(shape, R); ctx.clip();
-      if (color && color !== 'off') { ctx.fillStyle = color; ctx.fillRect(R.x, R.y, R.w, R.h); }
-      if (img) ctx.drawImage(img, R.x, R.y, R.w, R.h);   // stretched to the lantern's calibrated box
+      ctx.restore();
+      if (Lt && Lt.base) {
+        const glow = Lt.glow;
+        Lt.glow = glow + bloom;
+        A.paintOverlay(ctx, shape, R, Lt, alpha, { drift: !custom, flame: img ? 0.4 : 1 });
+        Lt.glow = glow;
+      }
+      return;
     }
+    // Flat look (real lanterns): only the face is lit; the color fill carries all the ambient light,
+    // and the drawing sits on top untouched so it always stays readable
+    facePath(shape, R); ctx.clip();
+    const lit = color && color !== 'off';
+    if (lit) {
+      let c = A.rgb(color);
+      if (Lt && Lt.base) {
+        const glow = Lt.glow, base = Lt.base;
+        Lt.glow = glow + bloom;
+        if (holder.prevColor) Lt.base = A.rgb(holder.prevColor);   // fading-out content keeps its own color
+        c = A.shade(Lt, fill);
+        Lt.glow = glow; Lt.base = base;
+      }
+      ctx.fillStyle = A.css(c); ctx.fillRect(R.x, R.y, R.w, R.h);
+      if (Lt && Lt.flame.a > 0.005) {
+        const fx = R.x + R.w * Lt.flame.x, fy = R.y + R.h * Lt.flame.y, fw = R.w * 0.95, fh = R.h * 0.8;
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = alpha * Lt.flame.a * (img ? 0.4 : 1);
+        ctx.drawImage(A.haze(A.mix(c, A.WARM, 0.55)), fx - fw / 2, fy - fh / 2, fw, fh);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = alpha;
+      }
+    } else if (bloom > 0) {                     // a lantern switched off still gets a brief farewell glow
+      ctx.globalAlpha = alpha * bloom * 0.4;
+      ctx.fillStyle = A.css(A.WARM); ctx.fillRect(R.x, R.y, R.w, R.h);
+      ctx.globalAlpha = alpha;
+    }
+    if (img) ctx.drawImage(img, R.x, R.y, R.w, R.h);   // stretched to the lantern's calibrated box
     ctx.restore();
   }
 
-  function draw() {
-    rafPending = false;
-    const now = performance.now();
-    let animating = false;
+  // Union of every lantern face, for keeping light inside the lanterns when DRAW_BETWEEN is off
+  function clipToFaces(g) {
+    g.beginPath();
+    for (const v of views.values()) {
+      const R = rectPx(v.lantern.proj);
+      A.addFace(g, v.lantern.shape, R.x, R.y, R.w, R.h);
+    }
+    g.clip();
+  }
 
+  // Every few seconds a random lantern without visitor content sparkles on its own, as if beckoning
+  let nextSparkle = CONFIG.IDLE_SPARKLE_MIN_S;
+  function idleSparkle(sec) {
+    if (sec < nextSparkle) return;
+    nextSparkle = sec + A.rand(CONFIG.IDLE_SPARKLE_MIN_S, CONFIG.IDLE_SPARKLE_MAX_S);
+    const lit = [...views.values()].filter(v => !v.burst && !v.prev && !v.img && A.rgb(v.lantern.color));
+    if (!lit.length) return;
+    const v = lit[Math.floor(Math.random() * lit.length)];
+    v.burst = A.burst(v.lantern.shape, v.lantern.color, true);
+  }
+
+  let bgSec = 0;
+  function draw(now, wall) {
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const live = moving();
-    if (live) { drawBackground(now); idleSparkle(now); } else lastFrame = 0;
-
+    const still = calibrating || !ambient;
+    if (!still && !A.reduceMotion.matches) {
+      if (detailed && CONFIG.FLOOR_GLOW > 0) A.paintFloorGlow(ctx, canvas.width, canvas.height, bgSec, CONFIG.FLOOR_GLOW);
+      embers.draw(ctx, canvas.width, canvas.height, detailed ? CONFIG.EMBER_LEVEL_DETAILED : CONFIG.EMBER_LEVEL_FLAT);
+      idleSparkle(bgSec);
+    }
     for (const v of views.values()) {
       const R = rectPx(v.lantern.proj);
-      const k = v.prev ? Math.min(1, (now - v.t0) / FADE_MS) : 1;
-      if (v.prev && k < 1) {
-        animating = true;
-        paintLantern(v.prev, v.lantern.shape, v.prev.color, v.prev.img, R, 1 - k);
+      const Lt = still ? null : eng.light(v.lantern.id, wall);
+      const custom = isCustom(v);
+      const T = v.prev ? Math.min(1, (now - v.t0) / CONFIG.REVEAL_BLOOM_MS) : 1;
+      const k = A.ease.outCubic(T);
+      let bloom = 0;
+      if (v.prev && T < 1) {
+        bloom = still ? 0 : Math.sin(Math.PI * T) * 0.7;
+        v.prev.prevColor = v.prev.color;
+        paintLantern(v.prev, v.lantern.shape, v.prev.color, v.prev.img, R, 1 - k, Lt, 0, true);
       } else v.prev = null;
-      if (live && detailed) drawHalo(v, R, now, k);
-      paintLantern(v, v.lantern.shape, v.lantern.color, v.img, R, k);
-      if (live) drawPulse(v, R, now, k);
+      if (Lt && detailed) A.paintHalo(ctx, R, Lt, k);
+      paintLantern(v, v.lantern.shape, v.lantern.color, v.img, R, k, Lt, bloom, custom);
       if (v.burst) {
         ctx.save();
         if (!detailed) { facePath(v.lantern.shape, R); ctx.clip(); }   // flat look: keep the wall around it black
-        if (LanternArt.drawBurst(ctx, v.burst, R.x, R.y, R.w, R.h, now, 1.5)) animating = true; else v.burst = null;
+        if (!A.drawBurst(ctx, v.burst, R.x, R.y, R.w, R.h, now, CONFIG.SPARKLE_SCALE)) v.burst = null;
         ctx.restore();
       }
 
@@ -305,7 +399,24 @@
         ctx.restore();
       }
     }
-    if (animating || live) requestDraw();
+    if (!still) {
+      eng.drawWisps(ctx, canvas.width, canvas.height, {
+        scale: detailed ? 1 : 1.15,
+        clip: CONFIG.DRAW_BETWEEN ? null : clipToFaces
+      });
+    }
+  }
+
+  // One animation loop for everything, driven by delta time
+  let last = 0;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    const dt = last ? Math.min(0.1, (now - last) / 1000) : 0;
+    last = now;
+    eng.setEnabled(ambient && !calibrating);
+    eng.update(dt);
+    if (ambient && !calibrating) { embers.update(dt); bgSec += dt; }
+    draw(now, (performance.timeOrigin + now) / 1000);
   }
 
   // ---------- Calibration ----------
@@ -333,7 +444,6 @@
     if (on && !unlocked) $('#adminCode').focus();
     if (on && unlocked && dirtyLayout) status('Unsaved changes');
     if (!on) { selected = null; helpTimer = setTimeout(() => help.classList.add('hide'), 2500); }
-    requestDraw();
   }
 
   $('#adminForm').addEventListener('submit', async e => {
@@ -376,7 +486,6 @@
       canvas.setPointerCapture(e.pointerId);
       dragInfo = { v: h.v, corner: h.corner, start: p, orig: { ...h.v.lantern.proj } };
     }
-    requestDraw();
   });
   canvas.addEventListener('pointermove', e => {
     if (!dragInfo) return;
@@ -387,13 +496,12 @@
     if (dragInfo.corner) { r.w = Math.max(0.02, o.w + dx); r.h = Math.max(0.02, o.h + dy); }
     else { r.x = o.x + dx; r.y = o.y + dy; }
     markDirty();
-    requestDraw();
   });
   const endDrag = () => { dragInfo = null; };
   canvas.addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
 
-  function markDirty() { dirtyLayout = true; status('Unsaved changes · press S to save'); }
+  function markDirty() { dirtyLayout = true; syncEngine(); status('Unsaved changes · press S to save'); }
 
   async function adminCall(name, args, doneMsg) {
     try {
@@ -438,9 +546,20 @@
   });
   confirmButton($('#resetBtn'), 'Reset to layout.js', async () => {
     status('Resetting…');
-    views.clear();
+    views.clear(); touched.clear(); syncEngine();
     if (await adminCall('reset_layout', { p_rows: window.buildLanternRows() }, 'Layout reset from layout.js.')) dirtyLayout = false;
   });
+
+  // Replays the reveal on a random lantern, locally only (for tuning the effect on the real wall)
+  function previewReveal() {
+    const list = [...views.values()];
+    if (!list.length) return;
+    const v = list[Math.floor(Math.random() * list.length)];
+    v.prev = { color: v.lantern.color, img: v.img, art: v.art };
+    v.t0 = performance.now();
+    v.burst = A.burst(v.lantern.shape, v.lantern.color);
+    eng.reveal(v.lantern.id, v.lantern.color);
+  }
 
   addEventListener('keydown', e => {
     if (e.target.closest && e.target.closest('input')) return;   // typing the admin code
@@ -453,10 +572,16 @@
     if (k === 'd') {
       detailed = !detailed;
       try { localStorage.setItem(LOOK_KEY, detailed ? 'detailed' : 'flat'); } catch { /* private mode */ }
-      requestDraw();
     }
-    if (k === 'a') { ambient = !ambient; savePref('lw-projector-ambient', ambient); requestDraw(); }
+    if (k === 'a') { ambient = !ambient; savePref('lw-projector-ambient', ambient); flash(ambient ? 'Ambient motion on' : 'Ambient motion off'); }
     if (k === 't') { showTitle = !showTitle; savePref('lw-projector-title', showTitle); $('#cta').classList.toggle('hide', !showTitle); }
+    if (k === 'w') {
+      CONFIG.DRAW_BETWEEN = !CONFIG.DRAW_BETWEEN;
+      savePref('lw-projector-between', CONFIG.DRAW_BETWEEN);
+      flash(CONFIG.DRAW_BETWEEN ? 'Light travels between lanterns' : 'Light stays inside lanterns');
+    }
+    if (k === 'r' && !calibrating) previewReveal();
+    if (k === 'm') flash(Sound.toggle() ? 'Sound on' : 'Sound off');
     if (!calibrating || !unlocked) return;
     if (k === 's') { e.preventDefault(); saveLayout(); }
     const v = selected != null && views.get(selected);
@@ -469,10 +594,13 @@
       if (e.key === 'ArrowUp') r.y -= step / canvas.height;
       if (e.key === 'ArrowDown') r.y += step / canvas.height;
       markDirty();
-      requestDraw();
     }
   });
 
+  // A few hooks for checking the wall from the browser console (window.LWProjector)
+  window.LWProjector = { config: CONFIG, engine: eng, views, previewReveal };
+
   resize();
   start();
+  requestAnimationFrame(frame);
 })();

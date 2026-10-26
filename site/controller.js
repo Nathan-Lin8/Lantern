@@ -1,4 +1,5 @@
 // iPad controller: pick a lantern, then draw / write / change its light, then send it to the wall.
+// The wall view and the idle attract screen animate with the same ambient engine as the projector (ambient.js).
 (() => {
   const $ = s => document.querySelector(s);
 
@@ -6,6 +7,8 @@
   const FACE_MAX = 800;            // longest side of the drawing space; the other side follows the lantern's shape
   const SS = 1.5;                  // export scale -> a 3:4 lantern exports at 900 x 1200
   const IDLE_MS = 90_000;          // editor returns to the wall after this long untouched
+  const ATTRACT_MS = 60_000;       // the wall fades to the idle attract screen after this long untouched
+  const AFTERGLOW_MS = 4200;       // "Look up" message after sending
   let W = 600, H = 800;            // current drawing space, set per lantern in openEditor()
   let shape = 'rect';              // current lantern's shape
 
@@ -56,7 +59,7 @@
   let live = false;
   function enterWall() {
     show('screen-wall');
-    fitWall();
+    fitWall(); loop(); touch();
     if (live) return;
     live = true;
     LW.subscribe({
@@ -71,6 +74,7 @@
       onRemove: id => {
         lanterns = lanterns.filter(x => x.id !== id);
         document.getElementById('lan-' + id)?.remove();
+        art.delete(id); syncEngine();
       },
       onStatus: status => {
         conn.className = 'conn ' + status;
@@ -80,27 +84,45 @@
   }
 
   // ---------- Wall screen ----------
-  // Each lantern is a button holding a canvas. The detailed drawing is rendered once per change
-  // into a sprite; animation frames only copy sprites and add sparkles, and only while something moves.
-  const wall = $('#wall'), wallWrap = $('#wallWrap');
-  const FADE_MS = 600;
-  const art = new Map();      // id -> { sprite, prev, t0, burst, img, url, color, seq, pending }
+  // The wall mirrors the projector: one canvas paints every lantern (a detailed sprite rendered once per
+  // change), then the shared ambient engine adds breathing, flicker, color drift and wisps between lanterns.
+  // Each lantern also gets an invisible button on top for tapping. The idle attract screen paints the
+  // same wall onto its own full-screen canvas.
+  const wall = $('#wall'), wallWrap = $('#wallWrap'), wallCanvas = $('#wallCanvas');
+  const FADE_MS = 1000;
+  const art = new Map();      // id -> { img, url, color, seq, pending, prev, t0, burst, sprites }
+  const touched = new Set();  // lanterns changed while this page was open (they keep their color)
+  const eng = Ambient.createEngine({ WISP_SIZE: 0.02, MAX_WISPS: 3 });
+  const dpr = () => Math.min(2, window.devicePixelRatio || 1);
+
+  const layoutColor = id => (window.LANTERN_LAYOUT || [])[id - 1]?.color;
+  function syncEngine() {
+    eng.setLanterns(lanterns.map(l => {
+      const a = art.get(l.id) || {};
+      return {
+        id: l.id, ...l.wall, color: l.color, content: !!a.img,
+        custom: !!a.img || touched.has(l.id) || l.color !== layoutColor(l.id)
+      };
+    }), 16 / 9);
+  }
 
   function renderWall() {
-    wall.innerHTML = '';
+    wall.querySelectorAll('.lan').forEach(b => b.remove());
     lanterns.forEach(l => {
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'lan shape-' + l.shape; b.id = 'lan-' + l.id;
       b.setAttribute('aria-label', `Lantern ${l.id}`);
-      b.innerHTML = '<canvas class="art" aria-hidden="true"></canvas><span class="num"></span>';
+      b.innerHTML = '<span class="num"></span>';
       b.querySelector('.num').textContent = l.id;
+      b.addEventListener('pointerdown', () => eng.poke(l.id, 0.7));     // lanterns brighten under a finger
       b.addEventListener('click', () => openChooser(l.id));
       wall.append(b);
       updateWallLantern(l, false);
     });
+    syncEngine();
   }
 
-  // animate = true when this is a live change (sparkle + fade); false for the first draw
+  // animate = true when this is a live change (bloom + sparkle + ripple); false for the first draw
   async function updateWallLantern(l, animate) {
     const b = document.getElementById('lan-' + l.id);
     if (!b) return renderWall();
@@ -108,82 +130,134 @@
       left: l.wall.x * 100 + '%', top: l.wall.y * 100 + '%',
       width: l.wall.w * 100 + '%', height: l.wall.h * 100 + '%'
     });
-    if (!art.has(l.id)) art.set(l.id, {});
+    if (!art.has(l.id)) art.set(l.id, { sprites: {} });
     const a = art.get(l.id), seq = a.seq = (a.seq || 0) + 1;
     const urlChanged = (a.url || null) !== (l.imageUrl || null);
-    const changed = animate && a.sprite && (urlChanged || a.color !== l.color);
-    if (urlChanged) {            // load the new drawing first so it fades in complete
+    const changed = animate && a.seen && (urlChanged || a.color !== l.color);
+    const before = { color: a.color, img: a.img, sprites: {} };
+    if (urlChanged) {            // load the new drawing first so it blooms in complete
       let img = null;
       if (l.imageUrl) { try { img = await LW.loadImage(l.imageUrl); } catch { /* show without it */ } }
       if (a.seq !== seq) return;  // a newer update already arrived
       a.img = img; a.url = l.imageUrl;
     }
-    a.color = l.color;
-    if (changed) a.pending = true;
-    drawWallLantern(l);
+    a.color = l.color; a.seen = true;
+    if (changed) { touched.add(l.id); a.pending = before; }
+    syncEngine();
+    if (wallVisible()) startPending();
   }
 
-  // Re-renders one lantern's sprite at its current size. Skipped while the wall is hidden;
-  // a change that arrived then plays its sparkle when the wall comes back.
-  function drawWallLantern(l) {
-    const a = art.get(l.id), b = document.getElementById('lan-' + l.id);
-    if (!a || !b) return;
-    const w = b.offsetWidth, h = b.offsetHeight;
-    if (w < 2 || h < 2) return;
-    const old = a.sprite;
-    a.sprite = LanternArt.sprite({ shape: l.shape, color: l.color, img: a.img }, w, h, Math.min(2, window.devicePixelRatio || 1));
-    if (a.pending && old) {
-      a.pending = false;
-      a.prev = old; a.t0 = performance.now();
-      a.burst = LanternArt.burst(l.shape, l.color);
+  // A change that arrived while the wall was hidden plays its reveal when the wall comes back
+  function startPending() {
+    for (const l of lanterns) {
+      const a = art.get(l.id);
+      if (!a || !a.pending) continue;
+      a.prev = a.pending; a.pending = null;
+      a.t0 = performance.now();
+      a.burst = Ambient.burst(l.shape, l.color);
+      eng.reveal(l.id, l.color);
     }
-    if (paintArt(l.id, performance.now())) animate(l.id);
+    loop();
   }
 
-  // One frame for one lantern. Returns true while it still has something to animate.
-  function paintArt(id, now) {
-    const a = art.get(id), cv = document.querySelector('#lan-' + id + ' .art');
-    if (!a || !a.sprite || !cv) return false;
-    const s = a.sprite;
-    if (cv.width !== s.c.width || cv.height !== s.c.height) {
-      cv.width = s.c.width; cv.height = s.c.height;
-      Object.assign(cv.style, {
-        left: -s.mg.x + 'px', top: -s.mg.top + 'px',
-        width: s.w + 2 * s.mg.x + 'px', height: s.h + s.mg.top + s.mg.bottom + 'px'
-      });
+  // Detailed lantern sprite for one surface ('wall' or 'attract'), re-rendered only when something changes
+  function spriteFor(holder, surface, l, color, img, w, h) {
+    const key = `${l.shape}|${color}|${Math.round(w)}x${Math.round(h)}`;
+    const c = holder.sprites[surface];
+    if (c && c.key === key && c.img === img) return c.sprite;
+    holder.sprites[surface] = { key, img, sprite: LanternArt.sprite({ shape: l.shape, color, img }, w, h, dpr()) };
+    return holder.sprites[surface].sprite;
+  }
+
+  // Surfaces: the wall on the wall screen, and the big one on the attract screen.
+  // box = where the 16:9 wall sits on the canvas (CSS pixels); pad = room around it for glow.
+  const surfaces = {
+    wall: { canvas: wallCanvas, box: null },
+    attract: { canvas: $('#attractCanvas'), box: null }
+  };
+
+  function sizeSurface(name) {
+    const s = surfaces[name], d = dpr();
+    let cw, ch, box;
+    if (name === 'wall') {
+      const w = wall.offsetWidth, h = wall.offsetHeight, pad = Math.round(Math.max(w, h) * 0.06);
+      cw = w + pad * 2; ch = h + pad * 2; box = { x: pad, y: pad, w, h };
+      Object.assign(s.canvas.style, { left: -pad + 'px', top: -pad + 'px', width: cw + 'px', height: ch + 'px' });
+    } else {
+      cw = innerWidth; ch = innerHeight;
+      const w = Math.min(cw * 0.92, ch * 0.78 * 16 / 9), h = w * 9 / 16;
+      box = { x: (cw - w) / 2, y: (ch - h) / 2 - ch * 0.06, w, h };
     }
-    const g = cv.getContext('2d');
+    if (s.canvas.width !== Math.round(cw * d) || s.canvas.height !== Math.round(ch * d)) {
+      s.canvas.width = Math.round(cw * d); s.canvas.height = Math.round(ch * d);
+    }
+    s.box = box;
+  }
+
+  const wallClock = now => (performance.timeOrigin + now) / 1000;
+  function paintSurface(name, now) {
+    const s = surfaces[name], g = s.canvas.getContext('2d'), d = dpr(), B = s.box;
+    if (!B || B.w < 2) return;
     g.setTransform(1, 0, 0, 1, 0, 0);
-    g.clearRect(0, 0, cv.width, cv.height);
-    let busy = false;
-    const k = a.prev ? Math.min(1, (now - a.t0) / FADE_MS) : 1;
-    if (a.prev && k < 1) { g.drawImage(a.prev.c, 0, 0, cv.width, cv.height); busy = true; } else a.prev = null;
-    g.globalAlpha = k; g.drawImage(s.c, 0, 0); g.globalAlpha = 1;
-    if (a.burst) {
-      g.setTransform(s.dpr, 0, 0, s.dpr, 0, 0);
-      if (LanternArt.drawBurst(g, a.burst, s.mg.x, s.mg.top, s.w, s.h, now)) busy = true; else a.burst = null;
+    g.clearRect(0, 0, s.canvas.width, s.canvas.height);
+    g.setTransform(d, 0, 0, d, 0, 0);
+    const wallSec = wallClock(now);
+    for (const l of lanterns) {
+      const a = art.get(l.id);
+      if (!a) continue;
+      const R = { x: B.x + l.wall.x * B.w, y: B.y + l.wall.y * B.h, w: l.wall.w * B.w, h: l.wall.h * B.h };
+      const Lt = eng.light(l.id, wallSec);
+      const T = a.prev ? Math.min(1, (now - a.t0) / FADE_MS) : 1, k = Ambient.ease.outCubic(T);
+      if (a.prev && T < 1) {
+        const ps = spriteFor(a.prev, name, l, a.prev.color, a.prev.img, R.w, R.h);
+        g.globalAlpha = 1 - k; g.drawImage(ps.c, R.x - ps.mg.x, R.y - ps.mg.top, ps.c.width / d, ps.c.height / d);
+      } else a.prev = null;
+      if (Lt) Ambient.paintHalo(g, R, Lt, k, 1.2);
+      const sp = spriteFor(a, name, l, l.color, a.img, R.w, R.h);
+      g.globalAlpha = k; g.drawImage(sp.c, R.x - sp.mg.x, R.y - sp.mg.top, sp.c.width / d, sp.c.height / d);
+      g.globalAlpha = 1;
+      if (Lt) {
+        const glow = Lt.glow;
+        if (a.prev) Lt.glow += Math.sin(Math.PI * T) * 0.7;                // bloom
+        Ambient.paintOverlay(g, l.shape, R, Lt, k, { drift: !a.img && !touched.has(l.id) && l.color === layoutColor(l.id), flame: a.img ? 0.4 : 1 });
+        Lt.glow = glow;
+      }
+      if (a.burst && !Ambient.drawBurst(g, a.burst, R.x, R.y, R.w, R.h, now)) a.burst = null;
     }
-    return busy;
+    g.save();
+    g.translate(B.x, B.y);
+    eng.drawWisps(g, B.w, B.h);
+    g.restore();
   }
 
-  const moving = new Set();
-  let rafOn = false;
-  function animate(id) {
-    moving.add(id);
-    if (!rafOn) { rafOn = true; requestAnimationFrame(tick); }
+  // One animation loop, running only while the wall or the attract screen is on screen
+  const wallVisible = () => !$('#screen-wall').hidden;
+  const attractVisible = () => !$('#attract').hidden;
+  let rafOn = false, lastNow = 0;
+  function loop() {
+    if (rafOn || !(wallVisible() || attractVisible())) return;
+    rafOn = true; lastNow = 0;
+    requestAnimationFrame(tick);
   }
   function tick(now) {
-    for (const id of [...moving]) if (!paintArt(id, now)) moving.delete(id);
-    if (moving.size) requestAnimationFrame(tick); else rafOn = false;
+    const showWall = wallVisible(), showAttract = attractVisible();
+    if (!showWall && !showAttract) { rafOn = false; return; }
+    const dt = lastNow ? Math.min(0.1, (now - lastNow) / 1000) : 0;
+    lastNow = now;
+    eng.update(dt);
+    if (showAttract) paintSurface('attract', now);
+    if (showWall && !$('#attract').classList.contains('on')) paintSurface('wall', now);   // also while attract fades out
+    requestAnimationFrame(tick);
   }
 
   function fitWall() {
     const r = wallWrap.getBoundingClientRect();
-    const w = Math.min(r.width, r.height * 16 / 9);
+    const w = Math.min(r.width, r.height * 16 / 9) * 0.94;
     wall.style.width = w + 'px'; wall.style.height = (w * 9 / 16) + 'px';
-    lanterns.forEach(drawWallLantern);
+    sizeSurface('wall');
   }
   new ResizeObserver(fitWall).observe(wallWrap);
+  addEventListener('resize', () => { if (attractVisible()) sizeSurface('attract'); });
 
   // ---------- Chooser ----------
   const chooser = $('#chooser');
@@ -193,7 +267,19 @@
     const l = lanterns.find(x => x.id === id);
     $('#chooserTitle').textContent = 'Lantern ' + id;
     drawMini(l);
+    const c = Ambient.rgb(l.color);
+    chooser.style.setProperty('--mini-glow', c ? Ambient.css(c, 0.55) : 'rgba(255,241,214,0.25)');
+    chooser.classList.remove('closing');
     chooser.hidden = false;
+  }
+  // Fades the chooser out instead of snapping it away
+  let chooserTimer;
+  function closeChooser(instant = false) {
+    if (chooser.hidden) return;
+    clearTimeout(chooserTimer);
+    if (instant || Ambient.reduceMotion.matches) { chooser.hidden = true; return; }
+    chooser.classList.add('closing');
+    chooserTimer = setTimeout(() => { chooser.hidden = true; chooser.classList.remove('closing'); }, 450);
   }
   // Small detailed preview of the chosen lantern, at its real proportions
   function drawMini(l) {
@@ -210,9 +296,9 @@
     LanternArt.drawDetailed(g, { shape: l.shape, color: l.color, img: art.get(l.id)?.img }, mg.x, mg.top, w, h);
   }
   chooser.querySelectorAll('[data-mode]').forEach(b =>
-    b.addEventListener('click', () => { chooser.hidden = true; openEditor(chosenId, b.dataset.mode); }));
-  $('#chooserCancel').addEventListener('click', () => { chooser.hidden = true; });
-  chooser.addEventListener('click', e => { if (e.target === chooser) chooser.hidden = true; });
+    b.addEventListener('click', () => { closeChooser(); openEditor(chosenId, b.dataset.mode); }));
+  $('#chooserCancel').addEventListener('click', () => closeChooser());
+  chooser.addEventListener('click', e => { if (e.target === chooser) closeChooser(); });
 
   // ---------- Editor ----------
   const stage = $('#stage'), frame = $('#frame');
@@ -228,6 +314,12 @@
     bctx.setTransform(SS, 0, 0, SS, 0, 0);
     ictx.setTransform(SS, 0, 0, SS, 0, 0);
     frame.classList.toggle('round', l.shape === 'circle' || l.shape === 'oval');
+  }
+
+  // The lantern in the editor glows softly in its light color
+  function frameGlow() {
+    const c = Ambient.rgb(ed.color);
+    frame.style.setProperty('--frame-glow', c ? Ambient.css(c, 0.45) : 'rgba(255,241,214,0.12)');
   }
 
   async function openEditor(id, m) {
@@ -259,7 +351,10 @@
     $('#screen-editor').hidden = true;
     $('#screen-wall').hidden = false;
     current = null; mode = null;
+    frame.classList.remove('sent');
     fitWall();
+    startPending();
+    touch();
   }
   $('#back').addEventListener('click', goWall);
 
@@ -271,6 +366,7 @@
     facePath(bctx);
     bctx.fillStyle = ed.color === 'off' ? '#2d2733' : ed.color;
     bctx.fill();
+    frameGlow();
     // faint paper ribs
     bctx.save(); facePath(bctx); bctx.clip();
     bctx.strokeStyle = 'rgba(0,0,0,.10)'; bctx.lineWidth = 2;
@@ -306,15 +402,31 @@
     return out;
   }
 
+  // Text is centered on the letters you actually see (not the font's em box), wrapped to the lantern's
+  // usable width (narrower for round shapes), and shrunk below the chosen size only if it wouldn't fit
   function drawText(ctx, t) {
     if (!t.value.trim()) return;
     ctx.save();
-    ctx.fillStyle = t.color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = FONTS[t.font].css.replace('SIZE', t.size);
-    const lines = wrapLines(ctx, t.value, W - 110);
-    const lh = t.size * 1.08;
-    const y0 = H / 2 + t.dy - (lines.length - 1) * lh / 2;
-    lines.forEach((ln, i) => ctx.fillText(ln, W / 2 + t.dx, y0 + i * lh));
+    ctx.fillStyle = t.color; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    const round = Ambient.ROUND.has(shape);
+    const maxW = W * (round ? 0.7 : 0.84), maxH = H * (round ? 0.62 : 0.82);
+    let size = t.size, lines, lh;
+    for (;;) {
+      ctx.font = FONTS[t.font].css.replace('SIZE', Math.round(size));
+      lines = wrapLines(ctx, t.value, maxW);
+      lh = size * 1.1;
+      const widest = Math.max(...lines.map(ln => ctx.measureText(ln).width));
+      if ((widest <= maxW && lines.length * lh <= maxH) || size <= 20) break;
+      size *= 0.93;
+    }
+    const m = ctx.measureText(lines.join(' ') || 'M');
+    const asc = m.actualBoundingBoxAscent || size * 0.7, desc = m.actualBoundingBoxDescent || size * 0.2;
+    const baseline0 = H / 2 + t.dy - ((lines.length - 1) * lh + asc + desc) / 2 + asc;
+    lines.forEach((ln, i) => {
+      const lm = ctx.measureText(ln);
+      const shift = lm.actualBoundingBoxRight != null ? (lm.actualBoundingBoxRight - lm.actualBoundingBoxLeft) / 2 : 0;
+      ctx.fillText(ln, W / 2 + t.dx - shift, baseline0 + i * lh);
+    });
     ctx.restore();
   }
 
@@ -488,6 +600,7 @@
     if (current == null) return;
     const id = current;
     sendBtn.disabled = true; sendBtn.textContent = 'Sending…';
+    frame.classList.add('sent');
     const showUntil = performance.now() + sendSparkle() * 0.85;
     try {
       if (mode === 'color') {
@@ -501,20 +614,63 @@
       }
       const wait = showUntil - performance.now();   // let the sparkle play before leaving
       if (wait > 0) await new Promise(r => setTimeout(r, wait));
-      toast(`Sent to lantern ${id}`);
-      if (current === id) goWall();
+      if (current === id) { goWall(); showAfterglow(); }
     } catch (err) {
+      frame.classList.remove('sent');
       toast(err.message, true);
     } finally {
       sendBtn.disabled = false; sendBtn.textContent = 'Send to wall';
     }
   });
 
-  // ---------- Idle reset (so the next visitor starts at the wall) ----------
+  // ---------- After Send: "Look up — your light is on the wall" ----------
+  const afterglow = $('#afterglow');
+  let agTimer;
+  function showAfterglow() {
+    clearTimeout(agTimer);
+    afterglow.hidden = false;
+    requestAnimationFrame(() => requestAnimationFrame(() => afterglow.classList.add('on')));
+    agTimer = setTimeout(hideAfterglow, AFTERGLOW_MS);
+  }
+  function hideAfterglow() {
+    clearTimeout(agTimer);
+    if (afterglow.hidden) return;
+    afterglow.classList.remove('on');
+    agTimer = setTimeout(() => { afterglow.hidden = true; }, 1400);
+  }
+
+  // ---------- Idle: editor -> wall, then the attract screen (so the next visitor starts fresh) ----------
+  const attract = $('#attract');
+  let attractTimer;
+  function showAttract() {
+    if (!attractVisible()) {
+      clearTimeout(attractTimer);
+      attract.hidden = false;
+      sizeSurface('attract');
+      requestAnimationFrame(() => requestAnimationFrame(() => attract.classList.add('on')));
+      loop();
+    }
+  }
+  function hideAttract() {
+    if (attractVisible() && attract.classList.contains('on')) {
+      attract.classList.remove('on');
+      clearTimeout(attractTimer);
+      // stays tappable while it fades, so the waking touch never lands on a lantern underneath
+      attractTimer = setTimeout(() => { attract.hidden = true; }, Ambient.reduceMotion.matches ? 300 : 1200);
+    }
+  }
+  attract.addEventListener('pointerdown', e => { e.preventDefault(); hideAttract(); });
+  attract.addEventListener('click', e => e.preventDefault());
+
   let idleTimer;
   function touch() {
     clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => { if (current != null) goWall(); chooser.hidden = true; }, IDLE_MS);
+    if ($('#screen-setup').hidden === false) return;
+    idleTimer = setTimeout(() => {
+      if (current != null) goWall();
+      closeChooser(true); hideAfterglow();
+      showAttract();
+    }, current != null ? IDLE_MS : ATTRACT_MS);
   }
   document.addEventListener('pointerdown', touch);
 

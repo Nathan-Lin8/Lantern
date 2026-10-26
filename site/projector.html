@@ -6,7 +6,7 @@
   <title>Lantern Wall · Projector</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@1,9..144,400&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,400&display=swap">
   <style>
     html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: none; }
     body.calibrating { cursor: default; }
@@ -45,9 +45,9 @@
     /* "Leave a Light" call to action, breathing slowly at the top of the wall */
     .cta {
       position: fixed; top: 3vh; left: 0; right: 0; margin: 0; text-align: center; pointer-events: none;
-      font: italic 400 clamp(32px, 7vh, 120px)/1 Fraunces, Georgia, serif; letter-spacing: 0.02em;
+      font: italic 400 clamp(34px, 7.5vh, 128px)/1 "Cormorant Garamond", Georgia, serif; letter-spacing: 0.03em;
       color: #ffe7c2; transition: opacity 0.6s;
-      animation: cta-breathe 5.5s ease-in-out infinite;
+      animation: cta-breathe 6.5s ease-in-out infinite;
     }
     /* Soft dark pool behind the words so they stay readable over a lantern */
     .cta span { position: relative; display: inline-block; padding: 0.15em 0.6em 0.25em; }
@@ -72,7 +72,8 @@
   <div class="conn" id="conn" title="Not connected"></div>
 
   <div class="overlay" id="help">
-    <p><b>Projector</b> · <kbd>F</kbd> fullscreen · <kbd>C</kbd> calibrate · <kbd>D</kbd> detailed / flat look · <kbd>T</kbd> title · <kbd>A</kbd> ambient motion</p>
+    <p><b>Projector</b> · <kbd>F</kbd> fullscreen · <kbd>C</kbd> calibrate · <kbd>D</kbd> detailed / flat look · <kbd>T</kbd> title · <kbd>A</kbd> ambient motion · <kbd>W</kbd> light between lanterns · <kbd>R</kbd> preview a reveal · <kbd>M</kbd> sound</p>
+    <p class="status">Click or press any key once to start the sound.</p>
 
     <form class="row" id="adminForm" hidden autocomplete="off">
       <input id="adminCode" type="password" placeholder="Admin code" aria-label="Admin code">
@@ -98,6 +99,8 @@
   <script src="config.js"></script>
   <script src="layout.js"></script>
   <script src="lw.js"></script>
+  <script src="ambient.js"></script>
+  <script src="sound.js"></script>
   <script src="lantern-art.js"></script>
   <script src="projector.js"></script>
 </body>
