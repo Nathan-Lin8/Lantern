@@ -25,16 +25,24 @@
       </div>
     </section>
 
-    <!-- Screen 1: the wall -->
+    <!-- Screen 1: home. A live picture of the whole exhibit (atmosphere only, nothing to tap),
+         then the three things a visitor can do to the main lantern. -->
     <section class="screen" id="screen-wall" hidden>
       <header class="bar">
         <h1 class="brand">Lantern Wall</h1>
         <div class="conn" id="conn"><i></i><span>Connecting…</span></div>
       </header>
-      <p class="prompt">Please select a lantern</p>
-      <div class="wall-wrap" id="wallWrap">
+      <div class="wall-wrap" id="wallWrap" aria-hidden="true">
         <div class="wall" id="wall">
-          <canvas class="wall-art" id="wallCanvas" aria-hidden="true"></canvas>
+          <canvas class="wall-art" id="wallCanvas"></canvas>
+        </div>
+      </div>
+      <div class="home-actions">
+        <p class="prompt" id="homePrompt">Leave your light on the lantern</p>
+        <div class="choices row3" id="choices">
+          <button type="button" data-mode="draw"><span class="letter">A</span><b>Draw</b><span>Finger or Apple Pencil</span></button>
+          <button type="button" data-mode="text"><span class="letter">B</span><b>Write</b><span>Type a short message</span></button>
+          <button type="button" data-mode="color"><span class="letter">C</span><b>Change the light</b><span>Pick a color</span></button>
         </div>
       </div>
     </section>
@@ -42,9 +50,9 @@
     <!-- Screen 2: editor -->
     <section class="screen" id="screen-editor" hidden>
       <header class="bar">
-        <button type="button" class="btn ghost" id="back">← Wall</button>
-        <h2 class="ed-title" id="edTitle">Lantern 1</h2>
-        <button type="button" class="btn primary" id="send">Send to wall</button>
+        <button type="button" class="btn ghost" id="back">← Back</button>
+        <h2 class="ed-title" id="edTitle">The lantern</h2>
+        <button type="button" class="btn primary" id="send">Send to lantern</button>
       </header>
 
       <div class="ed-body">
@@ -84,7 +92,7 @@
           <div class="panel" id="tools-text" hidden>
             <div class="group">
               <label class="label" for="txt">Your message</label>
-              <textarea id="txt" rows="3" maxlength="120" placeholder="Type something for the wall"></textarea>
+              <textarea id="txt" rows="3" maxlength="120" placeholder="Type something for the lantern"></textarea>
             </div>
             <div class="group">
               <span class="label">Font</span>
@@ -122,29 +130,10 @@
     </section>
   </div>
 
-  <!-- Mode chooser -->
-  <div class="modal-back" id="chooser" hidden>
-    <div class="modal" role="dialog" aria-labelledby="chooserTitle">
-      <div class="modal-head">
-        <canvas class="mini" id="chooserMini" aria-hidden="true"></canvas>
-        <div>
-          <h2 id="chooserTitle">Lantern 1</h2>
-          <p>What would you like to do?</p>
-        </div>
-      </div>
-      <div class="choices">
-        <button type="button" data-mode="draw"><span class="letter">A</span><b>Draw on it</b><span>Finger or Apple Pencil</span></button>
-        <button type="button" data-mode="text"><span class="letter">B</span><b>Add text</b><span>Type a short message</span></button>
-        <button type="button" data-mode="color"><span class="letter">C</span><b>Change the light</b><span>Pick a color</span></button>
-      </div>
-      <button type="button" class="btn ghost" id="chooserCancel">Cancel</button>
-    </div>
-  </div>
-
   <!-- After Send: a quiet nudge to look at the real wall -->
   <div class="afterglow" id="afterglow" hidden>
     <p class="ag-title">Look up</p>
-    <p class="ag-sub">your light is on the wall</p>
+    <p class="ag-sub">your light is on the lantern</p>
   </div>
 
 

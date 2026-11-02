@@ -12,6 +12,7 @@
   }
 
   function capSize(shape, w, h) {
+    if (shape === 'capsule') return { w: Math.min(w, h) * 0.42, h: Math.max(3, h * 0.035) };
     if (!ROUND.has(shape)) return { w: w * 1.06, h: Math.max(3, h * 0.06) };
     return { w: w * (shape === 'oblong' ? OB_END * 1.14 : 0.42), h: Math.max(3, h * 0.075) };
   }
@@ -127,7 +128,7 @@
     // Horizontal paper creases (a shadow line with a lit edge under it)
     const creases = round ? 10 : 8, sag = round ? h * 0.016 : 0;
     for (let i = 1; i < creases; i++) {
-      const v = i / creases, yy = y + v * h, hw = w / 2 * halfWidth(shape, v);
+      const v = i / creases, yy = y + v * h, hw = w / 2 * halfWidth(shape, v, w / h);
       [['rgba(40,20,5,0.18)', 0], ['rgba(255,255,255,0.10)', thin]].forEach(([s, dy]) => {
         ctx.strokeStyle = s; ctx.lineWidth = thin;
         ctx.beginPath(); ctx.moveTo(cx - hw, yy + dy); ctx.quadraticCurveTo(cx, yy + dy + sag * 2, cx + hw, yy + dy); ctx.stroke();

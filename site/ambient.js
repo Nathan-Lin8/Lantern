@@ -2,8 +2,10 @@
 //   - easing, noise and color helpers
 //   - lantern shape paths (used by lantern-art.js, the editor and both walls)
 //   - breathing math, the sparkle burst, soft glow sprites
-//   - the attract-mode engine: wisps of light drifting between lanterns, ripples, "conversations",
-//     a choreographer that picks a calm sequence every so often, and the reveal after a visitor sends.
+//   - the attract-mode engine: invisible "wisps" that make one lantern dim while the next brightens, ripples,
+//     "conversations", a choreographer that picks a calm sequence every so often, and the reveal after a visitor
+//     sends (the main lantern blooms, then the others echo the visitor's color one after another).
+//   Light never crosses the gap between lanterns: drawWisps() exists for screens only and the projector never calls it.
 // The engine works in surface fractions (0..1 across and down), so the same choreography drives the
 // projector canvas and the iPad's picture of the wall. Tune the projector in the CONFIG at the top of projector.js.
 (() => {
@@ -48,6 +50,7 @@
   // ---------- Shapes ----------
   const ROUND = new Set(['circle', 'oval', 'oblong']);
   const OB_END = 0.46;                 // oblong: width of the top/bottom openings, as a fraction of full width
+  // capsule: the flat main lantern, a rounded rectangle whose short ends are fully round (a stadium shape)
 
   // Rounded rectangle path. ctx.roundRect only exists on iPadOS 16+ / Safari 16+, so older iPads get arcTo.
   function rrect(ctx, x, y, w, h, r) {
@@ -61,11 +64,16 @@
     ctx.closePath();
   }
 
-  // Half-width of the body at height v (0 = top, 1 = bottom), as a fraction of half the box width
-  function halfWidth(shape, v) {
+  // Half-width of the body at height v (0 = top, 1 = bottom), as a fraction of half the box width.
+  // wh = box width / height (only the capsule needs it: its round ends take up more of a squat box)
+  function halfWidth(shape, v, wh = 0.5) {
     const u = 2 * v - 1, s = Math.max(0, 1 - u * u);
     if (shape === 'circle' || shape === 'oval') return Math.sqrt(s);
     if (shape === 'oblong') return OB_END + (1 - OB_END) * Math.pow(s, 0.6);
+    if (shape === 'capsule' && wh < 1) {
+      const r = wh / 2, e = Math.min(v, 1 - v);       // end radius and distance from the nearest end, in heights
+      if (e < r) { const d = (r - e) / r; return Math.sqrt(Math.max(0, 1 - d * d)); }
+    }
     return 1;
   }
 
@@ -81,6 +89,8 @@
       for (let i = 0; i <= N; i++) { const v = vAt(i); ctx.lineTo(cx + w / 2 * halfWidth(shape, v), y + v * h); }
       for (let i = N; i >= 0; i--) { const v = vAt(i); ctx.lineTo(cx - w / 2 * halfWidth(shape, v), y + v * h); }
       ctx.closePath();
+    } else if (shape === 'capsule') {
+      rrect(ctx, x, y, w, h, Math.min(w, h) / 2);
     } else {
       rrect(ctx, x, y, w, h, Math.min(w, h) * 0.045);
     }
@@ -288,7 +298,8 @@
     WISP_EVERY_MIN_S: 1.5, WISP_EVERY_MAX_S: 4,
     SEQ_WEIGHTS: { wisp: 1, relay: 0.8, ripple: 0.7, conversation: 0.9 },
     REVEAL_QUIET_S: 7, REVEAL_RING_DELAY_S: 0.5, REVEAL_RIPPLE_SPEED: 0.55,
-    REVEAL_GLOW: 0.8, REVEAL_TINT: 0.6, REVEAL_SPARKS: 2
+    REVEAL_GLOW: 0.8, REVEAL_TINT: 0.6, REVEAL_SPARKS: 2,
+    ECHO_STEP_S: 0.45, ECHO_DIP: 0.35, ECHO_DIP_LEAD_S: 0.4
   };
 
   function createEngine(opts = {}) {
@@ -522,12 +533,28 @@
       if (reduced()) return;
       at(C.REVEAL_RING_DELAY_S, () => {
         if (!L.has(id)) return;
-        ripple(s, { speed: C.REVEAL_RIPPLE_SPEED, glow: C.REVEAL_GLOW, tint: C.REVEAL_TINT, color: c, self: false });
+        echo(s, c);
         if (C.DRAW_BETWEEN) {
           for (const nb of neighbors(s, C.REVEAL_SPARKS)) {
             launch(s, nb, { color: mix(c, WHITE, 0.25), dur: rand(1.1, 1.5), arriveGlow: 0.2, arriveTint: 0.3 });
           }
         }
+      });
+    }
+
+    // The other lanterns answer one after another, nearest first: each dips, then brightens in the
+    // visitor's color and settles back. Nothing is drawn between them.
+    function echo(origin, c) {
+      const others = lit().filter(s => s !== origin).sort((p, q) => dist(origin, p) - dist(origin, q));
+      others.forEach((s, i) => {
+        const when = C.ECHO_DIP_LEAD_S + i * C.ECHO_STEP_S;
+        if (C.ECHO_DIP > 0) at(when - C.ECHO_DIP_LEAD_S, () => { if (L.has(s.id)) s.charge = Math.min(s.charge, -C.ECHO_DIP); });
+        at(when, () => {
+          if (!L.has(s.id)) return;
+          s.charge = Math.max(0, s.charge);
+          impulse(s, C.REVEAL_GLOW, c, C.REVEAL_TINT);
+          emit('echo', { id: s.id, color: c, index: i });
+        });
       });
     }
 

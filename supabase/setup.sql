@@ -4,7 +4,7 @@
 --
 -- 1) CHANGE THE ADMIN CODE before running:
 --      admin code       = what the projector page needs for calibration and resets
---      (the iPad needs no code: anyone at the wall can send drawings, text and colors)
+--      (the iPad needs no code: anyone at the wall can send drawings, text and colors to the main lantern)
 --    (To change them later, edit and run just the "Access codes" block again.)
 
 -- ============================================================
@@ -26,16 +26,18 @@ on conflict (key) do update set value = excluded.value;
 -- ============================================================
 create table if not exists public.lanterns (
   id          int primary key,
-  shape       text  not null check (shape in ('rect', 'square', 'circle', 'oval', 'oblong')),
+  shape       text  not null check (shape in ('rect', 'square', 'circle', 'oval', 'oblong', 'capsule')),
   color       text  not null default '#f4a64a' check (color ~ '^#[0-9a-f]{6}$' or color = 'off'),
+  interactive boolean not null default false,   -- true only for the main lantern (the iPad can change it)
   image_path  text,
   wall        jsonb not null,   -- {x,y,w,h} position on the iPad's picture of the wall
   proj        jsonb not null,   -- {x,y,w,h} position the projector draws it (calibration)
   updated_at  timestamptz not null default now()
 );
 alter table public.lanterns enable row level security;
+alter table public.lanterns add column if not exists interactive boolean not null default false;   -- older databases
 
--- Older databases were created before 'oblong' existed: replace the shape rule so they allow it too
+-- Older databases were created before 'oblong' / 'capsule' existed: replace the shape rule so they allow them
 do $$
 declare c text;
 begin
@@ -47,7 +49,7 @@ begin
   end loop;
 end $$;
 alter table public.lanterns add constraint lanterns_shape_check
-  check (shape in ('rect', 'square', 'circle', 'oval', 'oblong'));
+  check (shape in ('rect', 'square', 'circle', 'oval', 'oblong', 'capsule'));
 
 -- Anyone can read (the projector and iPad need to). Nobody can write directly;
 -- all writes go through the functions below (admin ones check the admin code).
@@ -57,14 +59,31 @@ grant select on public.lanterns to anon, authenticated;
 revoke insert, update, delete on public.lanterns from anon, authenticated;
 revoke all on public.lw_settings from anon, authenticated;
 
--- Starting layout (matches site/layout.js). Only fills an empty table.
-insert into public.lanterns (id, shape, color, wall, proj) values
-  (1, 'circle', '#f4a64a', '{"x":0.055,"y":0.3844,"w":0.13,"h":0.2311}', '{"x":0.055,"y":0.3844,"w":0.13,"h":0.2311}'),
-  (2, 'rect', '#fff1d6', '{"x":0.235,"y":0.3222,"w":0.15,"h":0.3556}', '{"x":0.235,"y":0.3222,"w":0.15,"h":0.3556}'),
-  (3, 'oblong', '#ec6f86', '{"x":0.435,"y":0.2936,"w":0.13,"h":0.3728}', '{"x":0.435,"y":0.2936,"w":0.13,"h":0.3728}'),
-  (4, 'square', '#5fb7d4', '{"x":0.615,"y":0.3667,"w":0.15,"h":0.2667}', '{"x":0.615,"y":0.3667,"w":0.15,"h":0.2667}'),
-  (5, 'oval', '#9ad46f', '{"x":0.82,"y":0.3476,"w":0.12,"h":0.3048}', '{"x":0.82,"y":0.3476,"w":0.12,"h":0.3048}')
+-- Starting layout (matches site/layout.js): one main capsule lantern + 8 decorative. Only fills an empty table.
+insert into public.lanterns (id, shape, interactive, color, wall, proj) values
+  (1, 'capsule', true, '#fff1d6', '{"x":0.415,"y":0.1978,"w":0.17,"h":0.6044}', '{"x":0.415,"y":0.1978,"w":0.17,"h":0.6044}'),
+  (2, 'oval', false, '#f4a64a', '{"x":0.065,"y":0.217,"w":0.07,"h":0.1659}', '{"x":0.065,"y":0.217,"w":0.07,"h":0.1659}'),
+  (3, 'circle', false, '#f59a6a', '{"x":0.175,"y":0.55,"w":0.09,"h":0.16}', '{"x":0.175,"y":0.55,"w":0.09,"h":0.16}'),
+  (4, 'oblong', false, '#ec7f8f', '{"x":0.276,"y":0.1525,"w":0.068,"h":0.195}', '{"x":0.276,"y":0.1525,"w":0.068,"h":0.195}'),
+  (5, 'circle', false, '#f2c35b', '{"x":0.3275,"y":0.7511,"w":0.055,"h":0.0978}', '{"x":0.3275,"y":0.7511,"w":0.055,"h":0.0978}'),
+  (6, 'oblong', false, '#f4a64a', '{"x":0.631,"y":0.5782,"w":0.078,"h":0.2237}', '{"x":0.631,"y":0.5782,"w":0.078,"h":0.2237}'),
+  (7, 'circle', false, '#ec7f8f', '{"x":0.6775,"y":0.2233,"w":0.075,"h":0.1333}', '{"x":0.6775,"y":0.2233,"w":0.075,"h":0.1333}'),
+  (8, 'oval', false, '#f2c35b', '{"x":0.8,"y":0.4811,"w":0.08,"h":0.1778}', '{"x":0.8,"y":0.4811,"w":0.08,"h":0.1778}'),
+  (9, 'circle', false, '#f59a6a', '{"x":0.904,"y":0.1638,"w":0.052,"h":0.0924}', '{"x":0.904,"y":0.1638,"w":0.052,"h":0.0924}')
 on conflict (id) do nothing;
+
+-- Projector display settings (mirroring for rear projection), saved with calibration.
+-- Anyone can read; only save_positions writes.
+create table if not exists public.lw_display (
+  id          int primary key default 1 check (id = 1),
+  mirror_x    boolean,
+  updated_at  timestamptz not null default now()
+);
+alter table public.lw_display enable row level security;
+drop policy if exists "display is readable" on public.lw_display;
+create policy "display is readable" on public.lw_display for select to anon, authenticated using (true);
+grant select on public.lw_display to anon, authenticated;
+revoke insert, update, delete on public.lw_display from anon, authenticated;
 
 -- Push row changes to the projector and iPads instantly
 do $$
@@ -80,10 +99,15 @@ insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_typ
 values ('lanterns', 'lanterns', true, 5242880, array['image/png'])
 on conflict (id) do update set public = true, file_size_limit = 5242880, allowed_mime_types = array['image/png'];
 
+-- Drawings can only be uploaded for the main (interactive) lantern
 drop policy if exists "lantern pngs can be uploaded" on storage.objects;
 create policy "lantern pngs can be uploaded" on storage.objects
   for insert to anon, authenticated
-  with check (bucket_id = 'lanterns' and name ~ '^lantern-[0-9]+/[0-9]+\.png$');
+  with check (
+    bucket_id = 'lanterns' and name ~ '^lantern-[0-9]+/[0-9]+\.png$'
+    and exists (select 1 from public.lanterns l
+                 where l.interactive and 'lantern-' || l.id = split_part(name, '/', 1))
+  );
 
 -- ============================================================
 -- Functions the website calls
@@ -103,24 +127,32 @@ create or replace function public.set_lantern_color(p_id int, p_color text, p_co
 returns void
 language plpgsql security definer set search_path = public
 as $$
+declare v_interactive boolean;
 begin
+  select interactive into v_interactive from public.lanterns where id = p_id;
+  if not found then raise exception 'There is no lantern %.', p_id; end if;
+  if not v_interactive then
+    raise exception 'Lantern % is decorative: only the main lantern can be changed from the iPad.', p_id;
+  end if;
   p_color := lower(coalesce(p_color, ''));
   if p_color !~ '^#[0-9a-f]{6}$' and p_color <> 'off' then
     raise exception 'Color must look like #ff8800 or off.';
   end if;
   update public.lanterns set color = p_color, updated_at = now() where id = p_id;
-  if not found then raise exception 'There is no lantern %.', p_id; end if;
 end;
 $$;
 
--- p_path = the uploaded file's path, or null to remove the drawing. Any shape can hold a drawing.
+-- p_path = the uploaded file's path, or null to remove the drawing. Only the main (interactive) lantern.
 create or replace function public.set_lantern_image(p_id int, p_path text, p_code text default null)
 returns void
 language plpgsql security definer set search_path = public
 as $$
+declare v_interactive boolean;
 begin
-  if not exists (select 1 from public.lanterns where id = p_id) then
-    raise exception 'There is no lantern %.', p_id;
+  select interactive into v_interactive from public.lanterns where id = p_id;
+  if not found then raise exception 'There is no lantern %.', p_id; end if;
+  if not v_interactive then
+    raise exception 'Lantern % is decorative: only the main lantern can be changed from the iPad.', p_id;
   end if;
   if p_path is not null and p_path !~ ('^lantern-' || p_id || '/[0-9]+\.png$') then
     raise exception 'That image does not belong to lantern %.', p_id;
@@ -130,7 +162,9 @@ end;
 $$;
 
 -- Calibration: p_rows = [{ "id": 1, "proj": { "x":..,"y":..,"w":..,"h":.. } }, ...]
-create or replace function public.save_positions(p_rows jsonb, p_code text)
+-- p_mirror = the projector's mirroring (null leaves it unchanged)
+drop function if exists public.save_positions(jsonb, text);
+create or replace function public.save_positions(p_rows jsonb, p_code text, p_mirror boolean default null)
 returns void
 language plpgsql security definer set search_path = public
 as $$
@@ -144,6 +178,10 @@ begin
          updated_at = now()
     from jsonb_to_recordset(p_rows) as r(id int, proj jsonb)
    where l.id = r.id;
+  if p_mirror is not null then
+    insert into public.lw_display (id, mirror_x, updated_at) values (1, p_mirror, now())
+    on conflict (id) do update set mirror_x = excluded.mirror_x, updated_at = now();
+  end if;
 end;
 $$;
 
@@ -157,9 +195,9 @@ begin
     raise exception 'That admin code is wrong.';
   end if;
   delete from public.lanterns where true;
-  insert into public.lanterns (id, shape, color, wall, proj)
-  select r.id, r.shape, lower(r.color), r.wall, r.proj
-    from jsonb_to_recordset(p_rows) as r(id int, shape text, color text, wall jsonb, proj jsonb);
+  insert into public.lanterns (id, shape, color, interactive, wall, proj)
+  select r.id, r.shape, lower(r.color), coalesce(r.interactive, false), r.wall, r.proj
+    from jsonb_to_recordset(p_rows) as r(id int, shape text, color text, interactive boolean, wall jsonb, proj jsonb);
 end;
 $$;
 
@@ -179,6 +217,8 @@ $$;
 grant execute on function public.check_access(text, text)                 to anon, authenticated;
 grant execute on function public.set_lantern_color(int, text, text)       to anon, authenticated;
 grant execute on function public.set_lantern_image(int, text, text)       to anon, authenticated;
-grant execute on function public.save_positions(jsonb, text)              to anon, authenticated;
+grant execute on function public.save_positions(jsonb, text, boolean)     to anon, authenticated;
 grant execute on function public.reset_layout(jsonb, text)                to anon, authenticated;
 grant execute on function public.clear_drawings(text)                     to anon, authenticated;
+
+notify pgrst, 'reload schema';

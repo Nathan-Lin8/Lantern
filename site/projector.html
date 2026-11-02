@@ -4,21 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Lantern Wall · Projector</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,400&display=swap">
   <style>
     html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: none; }
     body.calibrating { cursor: default; }
+    /* Mirrored: the system cursor would move backwards as seen from the front, so the canvas draws its own */
+    body.calibrating.mirrored canvas { cursor: none; }
     canvas { display: block; width: 100vw; height: 100vh; }
 
+    /* Operator panels. Hidden during the show (only lantern light on the wall). When the output is mirrored
+       for rear projection they are mirrored too, so they read correctly from the front. */
     .overlay {
       position: fixed; left: 16px; bottom: 16px; max-width: min(560px, calc(100vw - 32px));
       display: flex; flex-direction: column; gap: 10px;
       background: rgba(20, 16, 24, 0.92); color: #f2ecf4; border: 1px solid #463e50; border-radius: 12px;
       padding: 14px 16px; font: 14px/1.5 ui-sans-serif, system-ui, sans-serif;
-      transition: opacity 0.4s; user-select: none;
+      transition: opacity 0.4s; user-select: none; cursor: default;
     }
+    body.mirrored .overlay, body.mirrored .notice { transform: scaleX(-1); }
     .overlay.top { bottom: auto; top: 16px; }
     .overlay.right { left: auto; right: 16px; }
     .overlay.hide { opacity: 0; pointer-events: none; }
@@ -36,51 +38,25 @@
     .overlay input { flex: 1; min-width: 160px; }
     .overlay button:focus-visible, .overlay input:focus-visible { outline: 2px solid #f4a64a; outline-offset: 2px; }
     .status { color: #aaa0b5; min-height: 1.5em; }
+    .mirror-state { color: #ffd29a; }
 
     .notice {
       position: fixed; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px;
       color: #aaa0b5; font: 18px/1.5 ui-sans-serif, system-ui, sans-serif;
     }
     .notice[hidden], .overlay [hidden] { display: none; }
-    /* "Leave a Light" call to action, breathing slowly at the top of the wall */
-    .cta {
-      position: fixed; top: 3vh; left: 0; right: 0; margin: 0; text-align: center; pointer-events: none;
-      font: italic 400 clamp(34px, 7.5vh, 128px)/1 "Cormorant Garamond", Georgia, serif; letter-spacing: 0.03em;
-      color: #ffe7c2; transition: opacity 0.6s;
-      animation: cta-breathe 6.5s ease-in-out infinite;
-    }
-    /* Soft dark pool behind the words so they stay readable over a lantern */
-    .cta span { position: relative; display: inline-block; padding: 0.15em 0.6em 0.25em; }
-    .cta span::before {
-      content: ""; position: absolute; inset: -0.2em -0.4em; z-index: -1; border-radius: 50%;
-      background: radial-gradient(closest-side, rgba(0,0,0,0.75), rgba(0,0,0,0.45) 60%, transparent);
-    }
-    .cta.hide, body.calibrating .cta { opacity: 0 !important; animation: none; }
-    @keyframes cta-breathe {
-      0%, 100% { opacity: 0.72; text-shadow: 0 0 0.18em rgba(244,166,74,0.45), 0 0 0.6em rgba(244,166,74,0.18); }
-      50%      { opacity: 1;    text-shadow: 0 0 0.25em rgba(255,190,110,0.8), 0 0 1em rgba(244,166,74,0.45), 0 0 2em rgba(244,140,60,0.2); }
-    }
-    @media (prefers-reduced-motion: reduce) { .cta { animation: none; opacity: 0.9; } }
-    .sound-hint {
-      position: fixed; right: 16px; bottom: 16px; padding: 8px 16px; border-radius: 999px;
-      font: 14px/1.4 ui-sans-serif, system-ui, sans-serif; color: #ffe7c2;
-      background: rgba(20, 16, 24, 0.85); border: 1px solid #463e50;
-      transition: opacity 0.8s; animation: cta-breathe 4s ease-in-out infinite; pointer-events: none;
-    }
-    .sound-hint.hide { opacity: 0; animation: none; }
-    .conn { position: fixed; right: 12px; top: 12px; width: 10px; height: 10px; border-radius: 50%; background: #ef6b6b; opacity: 0; transition: opacity 0.3s; }
-    .conn.down { opacity: 1; }
+    /* Tiny red dot, only while the connection is down */
+    .conn { position: fixed; right: 12px; top: 12px; width: 8px; height: 8px; border-radius: 50%; background: #ef6b6b; opacity: 0; transition: opacity 0.3s; }
+    .conn.down { opacity: 0.8; }
   </style>
 </head>
 <body>
   <canvas id="c"></canvas>
-  <h1 class="cta" id="cta"><span>Leave a Light</span></h1>
   <div class="notice" id="notice" hidden></div>
   <div class="conn" id="conn" title="Not connected"></div>
-  <div class="sound-hint hide" id="soundHint">♪ Click or press any key for sound</div>
 
-  <div class="overlay" id="help">
-    <p><b>Projector</b> · <kbd>F</kbd> fullscreen · <kbd>C</kbd> calibrate · <kbd>D</kbd> detailed / flat look · <kbd>T</kbd> title · <kbd>A</kbd> ambient motion · <kbd>W</kbd> light between lanterns · <kbd>R</kbd> preview a reveal · <kbd>M</kbd> sound</p>
+  <div class="overlay hide" id="help">
+    <p><b>Projector</b> · <kbd>F</kbd> fullscreen · <kbd>C</kbd> calibrate · <kbd>A</kbd> ambient motion · <kbd>R</kbd> preview a reveal · <kbd>M</kbd> sound · <kbd>H</kbd> this help</p>
 
     <form class="row" id="adminForm" hidden autocomplete="off">
       <input id="adminCode" type="password" placeholder="Admin code" aria-label="Admin code">
@@ -88,10 +64,12 @@
     </form>
 
     <div id="calTools" hidden>
-      <p>Drag a shape onto its lantern. Drag the white corner square to resize.
+      <p>Stand in front of the lanterns. Drag each shape onto its lantern; drag the white corner square to resize.
         Arrow keys nudge the selected one (<kbd>Shift</kbd> for bigger steps).</p>
+      <p style="margin-top:8px"><span class="mirror-state" id="mirrorState"></span></p>
       <div class="row" style="margin-top:10px">
         <button type="button" class="primary" id="saveBtn">Save positions (S)</button>
+        <button type="button" id="flipBtn">Flip (X)</button>
         <button type="button" id="clearBtn" class="danger">Clear all drawings</button>
         <button type="button" id="resetBtn" class="danger">Reset to layout.js</button>
         <button type="button" id="moveBtn">Move this panel</button>

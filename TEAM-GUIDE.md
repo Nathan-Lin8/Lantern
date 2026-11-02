@@ -14,20 +14,20 @@ You only need two links and a projector. Nothing to install.
 **iPad**
 1. Tap the **Lantern Wall** icon on the home screen.
    (No icon? Open `https://YOUR-SITE.netlify.app/` in Safari.)
-2. You should see the wall and "Please select a lantern", with a green dot that says **Wall connected**.
+2. You should see the lanterns, "Leave your light on the lantern" and three buttons, with a green dot that says **Wall connected**.
 3. Lock the iPad to the app so visitors can't swipe away: triple-click the top (or Home) button to start
    **Guided Access**, then tap **Start**. Triple-click again and enter the passcode to exit.
    (First time only: turn it on in Settings → Accessibility → Guided Access and set a passcode.)
    Use the home-screen icon, not a Safari tab: in Safari, swiping in from the left edge while drawing can go back a page.
 
-**Quick test:** tap a lantern → C Change the light → pick a color → Send to wall.
-The lantern on the real wall should change within a second.
+**Quick test:** tap C Change the light → pick a color → Send to lantern.
+The big main lantern should change within a second, and the others echo the color.
 
 ## During the show
 
-Visitors tap a lantern, pick what to do, and press **Send to wall**. That's it.
+Visitors pick Draw, Write or Change the light, and press **Send to lantern**. That's it.
 
-- If nobody touches the iPad for 90 seconds, it goes back to the wall screen by itself.
+- If nobody touches the iPad for 90 seconds, it goes back to the three choices by itself.
 
 ## If something looks wrong
 

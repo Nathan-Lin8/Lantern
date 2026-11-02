@@ -18,6 +18,8 @@
   function toLantern(r) {
     return {
       id: r.id, shape: r.shape, color: r.color, wall: r.wall, proj: r.proj,
+      // null when the database predates supabase/migrate-main-lantern.sql (no interactive column yet)
+      interactive: r.interactive == null ? null : !!r.interactive,
       imageUrl: r.image_path ? sb.storage.from(bucket).getPublicUrl(r.image_path).data.publicUrl : null
     };
   }
@@ -33,6 +35,25 @@
     const { data, error } = await sb.from('lanterns').select('*').order('id');
     if (error) throw new Error(friendly(error));
     return data.map(toLantern);
+  }
+
+  // The one lantern visitors can customize. On a database that hasn't run migrate-main-lantern.sql yet
+  // (no interactive column), falls back to the biggest lantern so the wall keeps working.
+  function mainOf(list) {
+    const m = list.find(l => l.interactive);
+    if (m) return m;
+    if (!list.length || !list.every(l => l.interactive == null)) return null;
+    const area = l => (l.proj || l.wall).w * (l.proj || l.wall).h;
+    return list.reduce((a, b) => (area(b) > area(a) ? b : a));
+  }
+
+  // Projector display settings saved with calibration (mirroring). null if none saved / table missing.
+  async function fetchDisplay() {
+    try {
+      const { data, error } = await sb.from('lw_display').select('mirror_x').eq('id', 1).maybeSingle();
+      if (error || !data) return null;
+      return { mirrorX: data.mirror_x };
+    } catch { return null; }
   }
 
   // Live updates. Refetches everything on (re)connect so nothing is missed.
@@ -105,5 +126,5 @@
     });
   }
 
-  window.LW = { configured: configured && !libMissing, libMissing, sb, fetchAll, subscribe, rpc, uploadPng, codes, checkCode, loadImage };
+  window.LW = { configured: configured && !libMissing, libMissing, sb, fetchAll, fetchDisplay, mainOf, subscribe, rpc, uploadPng, codes, checkCode, loadImage };
 })();

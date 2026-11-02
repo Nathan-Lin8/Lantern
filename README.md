@@ -2,10 +2,12 @@
 
 An iPad controller and a projector display for an interactive lantern wall.
 
-- **Controller** (`site/index.html`): visitors pick a lantern, then **A** draw on it,
-  **B** add text, or **C** change the light. Round, oval and oblong lanterns only get **C**.
-- **Projector** (`site/projector.html`): black full-screen page that draws each lantern's light
-  and drawing at its spot on the wall. Updates fade in live.
+- **Controller** (`site/index.html`): opens straight onto the one main lantern with three choices:
+  **A** draw, **B** write, **C** change the light. A live picture of the whole exhibit breathes above them.
+- **Projector** (`site/projector.html`): rear projection through hanging lanterns. Light is only ever
+  painted inside the lantern shapes (everything else stays pure black), and the output is mirrored so it
+  reads correctly from the front. The main lantern shows the visitor's color, drawing or text; the
+  decorative lanterns breathe, drift through warm colors and echo each new visitor's color.
 - **Netlify** hosts the pages. **Supabase** stores the lanterns, the drawings (as PNGs), and pushes
   every change to the projector instantly. There's no server of your own to run.
 
@@ -76,12 +78,13 @@ The home-screen icon opens straight to the wall.
 Edit `site/layout.js`. Each line is one lantern:
 
 ```js
-{ shape: 'rect', cx: 0.45, cy: 0.69, size: 0.14, aspect: 0.75, color: '#f4a64a' }
+{ shape: 'capsule', interactive: true, cx: 0.50, cy: 0.50, size: 0.17, aspect: 0.5, color: '#fff1d6' }
 ```
 
 | Field | Meaning |
 |---|---|
-| `shape` | `rect`, `square`, `circle`, `oval` or `oblong` (a tall classic paper lantern). Every shape can show drawings, text and light color. |
+| `shape` | `capsule` (flat, tall, fully rounded ends: the main lantern), `circle`, `oval`, `oblong` (a tall classic paper lantern), `rect` or `square` |
+| `interactive` | `true` for the one main lantern visitors customize. Leave it out on decorative lanterns. The database refuses colors and drawings for non-interactive lanterns. |
 | `cx`, `cy` | Center of the lantern, 0 to 1 across and down the wall |
 | `size` | Width as a fraction of the wall width |
 | `aspect` | Real width ÷ height: 1 for squares and circles, 0.75 for a tall 3:4 box, 1.33 for a wide one |
@@ -92,7 +95,9 @@ This replaces every lantern, so recalibrate afterward.
 
 ## Admin tools (projector page, `C`)
 
-- **Save positions**: stores calibration.
+- **Save positions** (`S`): stores calibration and the mirroring setting.
+- **Flip** (`X`): mirrors the output left/right. On for rear projection (default `MIRROR_X` in `projector.js`).
+  While mirrored, stand in front of the lanterns to calibrate: moving the mouse right moves the shape right as seen from the front.
 - **Clear all drawings**: wipes every drawing, keeps colors and positions. Good between sessions.
 - **Reset to layout.js**: rebuilds all lanterns from `layout.js`. Clears drawings and calibration.
 
@@ -122,10 +127,19 @@ site/                  what Netlify publishes
   lw.js                Supabase connection, uploads, admin code
   config.js            your Supabase URL + anon key
   layout.js            the list of lanterns
-supabase/setup.sql     run once in the Supabase SQL Editor
+supabase/setup.sql     run once in the Supabase SQL Editor (fresh installs)
+supabase/migrate-main-lantern.sql   upgrade an existing database to the main-lantern setup
 netlify.toml           tells Netlify to publish site/
 TEAM-GUIDE.md          one-page guide for the showcase
 ```
+
+## Tuning the projector
+
+Everything worth tuning on the real lanterns is in the `CONFIG` block at the top of `site/projector.js`:
+`MIRROR_X`, `EDGE_INSET` (how far inside each outline the light stops), breathing, the main lantern's
+ambient strength, drift colors, echo timing. Keys on the projector: `F` fullscreen, `C` calibrate,
+`A` ambient on/off, `R` preview a reveal, `M` sound, `H` help. `projector.html?demo` previews
+layout.js locally without Supabase.
 
 ## Good to know
 

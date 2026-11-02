@@ -1,12 +1,14 @@
-// iPad controller: pick a lantern, then draw / write / change its light, then send it to the wall.
-// The wall view animates with the same ambient engine as the projector (ambient.js).
+// iPad controller. Only the main lantern (interactive in layout.js) can be customized, so the iPad opens
+// straight onto its three choices (Draw, Write, Change the light) under a live picture of the whole exhibit.
+// After Send: the reveal, "Look up", then back to the three choices for the next visitor.
+// The picture animates with the same ambient engine as the projector (ambient.js); nothing in it is tappable.
 (() => {
   const $ = s => document.querySelector(s);
 
   // ---------- Settings ----------
   const FACE_MAX = 800;            // longest side of the drawing space; the other side follows the lantern's shape
   const SS = 1.5;                  // export scale -> a 3:4 lantern exports at 900 x 1200
-  const IDLE_MS = 90_000;          // editor returns to the wall after this long untouched
+  const IDLE_MS = 90_000;          // editor returns to the three choices after this long untouched
   const AFTERGLOW_MS = 4200;       // "Look up" message after sending
   let W = 600, H = 800;            // current drawing space, set per lantern in openEditor()
   let shape = 'rect';              // current lantern's shape
@@ -29,11 +31,12 @@
     text: 'Type your message, then drag the box to place it',
     color: 'This is how the lantern will glow'
   };
-  const MODE_NAMES = { draw: 'Draw', text: 'Add text', color: 'Change the light' };
+  const MODE_NAMES = { draw: 'Draw', text: 'Write', color: 'Change the light' };
 
   // ---------- State ----------
   let lanterns = [];
   let current = null;   // lantern id being edited
+  let mainId = null;    // the one interactive lantern
   let mode = null;      // 'draw' | 'text' | 'color'
   const ed = {
     base: null, strokes: [], color: '#f4a64a',
@@ -66,13 +69,10 @@
       onChange: l => {
         const i = lanterns.findIndex(x => x.id === l.id);
         if (i >= 0) lanterns[i] = l; else lanterns.push(l);
-        const el = document.getElementById('lan-' + l.id);
-        if (el && !el.classList.contains('shape-' + l.shape)) return renderWall();
         updateWallLantern(l, true);
       },
       onRemove: id => {
         lanterns = lanterns.filter(x => x.id !== id);
-        document.getElementById('lan-' + id)?.remove();
         art.delete(id); syncEngine();
       },
       onStatus: status => {
@@ -82,52 +82,42 @@
     });
   }
 
-  // ---------- Wall screen ----------
-  // The wall mirrors the projector: one canvas paints every lantern (a detailed sprite rendered once per
-  // change), then the shared ambient engine adds breathing, flicker, color drift and wisps between lanterns.
-  // Each lantern also gets an invisible button on top for tapping.
+  // ---------- Home screen: live picture of the exhibit ----------
+  // One canvas paints every lantern (a detailed sprite rendered once per change), then the shared ambient
+  // engine adds breathing, flicker and color drift. Like the real exhibit, no light travels between lanterns:
+  // the main lantern shows the visitor's work, the decorative ones breathe and echo the visitor's color.
   const wall = $('#wall'), wallWrap = $('#wallWrap'), wallCanvas = $('#wallCanvas');
   const FADE_MS = 1000;
   const art = new Map();      // id -> { img, url, color, seq, pending, prev, t0, burst, sprites }
-  const touched = new Set();  // lanterns changed while this page was open (they keep their color)
-  const eng = Ambient.createEngine({ WISP_SIZE: 0.02, MAX_WISPS: 3 });
+  const eng = Ambient.createEngine({ DRAW_BETWEEN: false, MAX_WISPS: 3, CONTENT_BREATH_DEPTH: 0.06 });
   const dpr = () => Math.min(2, window.devicePixelRatio || 1);
 
-  const layoutColor = id => (window.LANTERN_LAYOUT || [])[id - 1]?.color;
+  const isMain = l => l.id === mainId;
   function syncEngine() {
+    mainId = LW.mainOf(lanterns)?.id ?? null;
     eng.setLanterns(lanterns.map(l => {
       const a = art.get(l.id) || {};
-      return {
-        id: l.id, ...l.wall, color: l.color, content: !!a.img,
-        custom: !!a.img || touched.has(l.id) || l.color !== layoutColor(l.id)
-      };
+      const custom = isMain(l) || !!a.img;      // the main lantern keeps its color; decorative ones drift
+      return { id: l.id, ...l.wall, color: l.color, content: custom, custom };
     }), 16 / 9);
+    refreshChoices();
+  }
+
+  // The three choices work only once there's a main lantern
+  function refreshChoices() {
+    const ready = mainId != null;
+    document.querySelectorAll('#choices button').forEach(b => { b.disabled = !ready; });
+    $('#homePrompt').textContent = ready ? 'Leave your light on the lantern'
+      : lanterns.length ? 'The main lantern isn\u2019t set up yet' : 'Waking the lanterns…';
   }
 
   function renderWall() {
-    wall.querySelectorAll('.lan').forEach(b => b.remove());
-    lanterns.forEach(l => {
-      const b = document.createElement('button');
-      b.type = 'button'; b.className = 'lan shape-' + l.shape; b.id = 'lan-' + l.id;
-      b.setAttribute('aria-label', `Lantern ${l.id}`);
-      b.innerHTML = '<span class="num"></span>';
-      b.querySelector('.num').textContent = l.id;
-      b.addEventListener('pointerdown', () => eng.poke(l.id, 0.7));     // lanterns brighten under a finger
-      b.addEventListener('click', () => openChooser(l.id));
-      wall.append(b);
-      updateWallLantern(l, false);
-    });
+    lanterns.forEach(l => updateWallLantern(l, false));
     syncEngine();
   }
 
-  // animate = true when this is a live change (bloom + sparkle + ripple); false for the first draw
+  // animate = true when this is a live change (bloom + sparkle + echo); false for the first draw
   async function updateWallLantern(l, animate) {
-    const b = document.getElementById('lan-' + l.id);
-    if (!b) return renderWall();
-    Object.assign(b.style, {
-      left: l.wall.x * 100 + '%', top: l.wall.y * 100 + '%',
-      width: l.wall.w * 100 + '%', height: l.wall.h * 100 + '%'
-    });
     if (!art.has(l.id)) art.set(l.id, { sprites: {} });
     const a = art.get(l.id), seq = a.seq = (a.seq || 0) + 1;
     const urlChanged = (a.url || null) !== (l.imageUrl || null);
@@ -140,7 +130,7 @@
       a.img = img; a.url = l.imageUrl;
     }
     a.color = l.color; a.seen = true;
-    if (changed) { touched.add(l.id); a.pending = before; }
+    if (changed) a.pending = before;
     syncEngine();
     if (wallVisible()) startPending();
   }
@@ -206,15 +196,11 @@
       if (Lt) {
         const glow = Lt.glow;
         if (a.prev) Lt.glow += Math.sin(Math.PI * T) * 0.7;                // bloom
-        Ambient.paintOverlay(g, l.shape, R, Lt, k, { drift: !a.img && !touched.has(l.id) && l.color === layoutColor(l.id), flame: a.img ? 0.4 : 1 });
+        Ambient.paintOverlay(g, l.shape, R, Lt, k, { drift: !isMain(l) && !a.img, flame: isMain(l) ? 0.4 : 1 });
         Lt.glow = glow;
       }
       if (a.burst && !Ambient.drawBurst(g, a.burst, R.x, R.y, R.w, R.h, now)) a.burst = null;
     }
-    g.save();
-    g.translate(B.x, B.y);
-    eng.drawWisps(g, B.w, B.h);
-    g.restore();
   }
 
   // One animation loop, running only while the wall is on screen
@@ -242,61 +228,27 @@
   }
   new ResizeObserver(fitWall).observe(wallWrap);
 
-  // ---------- Chooser ----------
-  const chooser = $('#chooser');
-  let chosenId = null;
-  function openChooser(id) {
-    chosenId = id;
-    const l = lanterns.find(x => x.id === id);
-    $('#chooserTitle').textContent = 'Lantern ' + id;
-    drawMini(l);
-    const c = Ambient.rgb(l.color);
-    chooser.style.setProperty('--mini-glow', c ? Ambient.css(c, 0.55) : 'rgba(255,241,214,0.25)');
-    chooser.classList.remove('closing');
-    chooser.hidden = false;
-  }
-  // Fades the chooser out instead of snapping it away
-  let chooserTimer;
-  function closeChooser(instant = false) {
-    if (chooser.hidden) return;
-    clearTimeout(chooserTimer);
-    if (instant || Ambient.reduceMotion.matches) { chooser.hidden = true; return; }
-    chooser.classList.add('closing');
-    chooserTimer = setTimeout(() => { chooser.hidden = true; chooser.classList.remove('closing'); }, 450);
-  }
-  // Small detailed preview of the chosen lantern, at its real proportions
-  function drawMini(l) {
-    const mini = $('#chooserMini');
-    const aspect = (l.wall.w * 16) / (l.wall.h * 9);
-    let h = 60, w = h * aspect;
-    if (w > 84) { w = 84; h = w / aspect; }
-    const mg = LanternArt.margins(l.shape, w, h), dpr = Math.min(2, window.devicePixelRatio || 1);
-    const cw = w + 2 * mg.x, ch = h + mg.top + mg.bottom;
-    mini.width = Math.ceil(cw * dpr); mini.height = Math.ceil(ch * dpr);
-    mini.style.width = cw + 'px'; mini.style.height = ch + 'px';
-    const g = mini.getContext('2d');
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    LanternArt.drawDetailed(g, { shape: l.shape, color: l.color, img: art.get(l.id)?.img }, mg.x, mg.top, w, h);
-  }
-  chooser.querySelectorAll('[data-mode]').forEach(b =>
-    b.addEventListener('click', () => { closeChooser(); openEditor(chosenId, b.dataset.mode); }));
-  $('#chooserCancel').addEventListener('click', () => closeChooser());
-  chooser.addEventListener('click', e => { if (e.target === chooser) closeChooser(); });
+  // ---------- The three choices ----------
+  document.querySelectorAll('#choices [data-mode]').forEach(b =>
+    b.addEventListener('click', () => { if (mainId != null) { hideAfterglow(); openEditor(mainId, b.dataset.mode); } }));
 
   // ---------- Editor ----------
   const stage = $('#stage'), frame = $('#frame');
   const bg = $('#bg'), ink = $('#ink');
   const bctx = bg.getContext('2d'), ictx = ink.getContext('2d', { willReadFrequently: true });
 
-  // Size the drawing space to the lantern's real proportions (wall rect is on a 16:9 surface)
+  // Size the drawing space to the lantern's real proportions: its calibrated projector box (on a 16:9
+  // image), so the exported PNG fills the real lantern without stretching
   function sizeCanvases(l) {
-    const aspect = (l.wall.w * 16) / (l.wall.h * 9);   // width / height
+    const box = l.proj || l.wall;
+    const aspect = (box.w * 16) / (box.h * 9);   // width / height
     if (aspect >= 1) { W = FACE_MAX; H = Math.round(FACE_MAX / aspect); }
     else { H = FACE_MAX; W = Math.round(FACE_MAX * aspect); }
     [bg, ink].forEach(c => { c.width = Math.round(W * SS); c.height = Math.round(H * SS); });
     bctx.setTransform(SS, 0, 0, SS, 0, 0);
     ictx.setTransform(SS, 0, 0, SS, 0, 0);
     frame.classList.toggle('round', l.shape === 'circle' || l.shape === 'oval');
+    frame.classList.toggle('capsule', l.shape === 'capsule');
   }
 
   // The lantern in the editor glows softly in its light color
@@ -313,7 +265,7 @@
     ed.brush.erase = false;
     ed.text = { ...ed.text, value: '', dx: 0, dy: 0, box: null, placing: false, size: Math.round(96 * Math.min(W, H) / 600) };
 
-    $('#edTitle').textContent = `Lantern ${id} · ${MODE_NAMES[m]}`;
+    $('#edTitle').textContent = `The lantern · ${MODE_NAMES[m]}`;
     ['draw', 'text', 'color'].forEach(k => { $('#tools-' + k).hidden = k !== m; });
     stage.className = 'stage ' + m;
     $('#hint').textContent = HINTS[m];
@@ -392,8 +344,11 @@
     if (!t.value.trim()) return;
     ctx.save();
     ctx.fillStyle = t.color; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-    const round = Ambient.ROUND.has(shape);
-    const maxW = W * (round ? 0.7 : 0.84), maxH = H * (round ? 0.62 : 0.82);
+    const round = Ambient.ROUND.has(shape), capsule = shape === 'capsule';
+    // capsule: the round ends lose about a third of the short side at each end
+    const endPad = capsule ? Math.min(W, H) * 0.3 : 0;
+    const maxW = W * (round ? 0.7 : 0.84) - (capsule && W > H ? 2 * endPad : 0);
+    const maxH = H * (round ? 0.62 : 0.82) - (capsule && H >= W ? 2 * endPad : 0);
     let size = t.size, lines, lh;
     for (;;) {
       ctx.font = FONTS[t.font].css.replace('SIZE', Math.round(size));
@@ -415,8 +370,9 @@
     const halfW = Math.max(...metrics.map(q => q.half));
     // keep the whole block on the lantern while it's dragged around
     const pad = Math.max(6, 22 * W / (frame.clientWidth || W));    // room for the dashed box around it
-    t.dx = Math.max(-(W / 2 - halfW - pad), Math.min(W / 2 - halfW - pad, t.dx));
-    t.dy = Math.max(-(H / 2 - blockH / 2 - pad), Math.min(H / 2 - blockH / 2 - pad, t.dy));
+    const padX = pad + (capsule && W > H ? endPad : 0), padY = pad + (capsule && H >= W ? endPad : 0);
+    t.dx = Math.max(-(W / 2 - halfW - padX), Math.min(W / 2 - halfW - padX, t.dx));
+    t.dy = Math.max(-(H / 2 - blockH / 2 - padY), Math.min(H / 2 - blockH / 2 - padY, t.dy));
     const top = H / 2 + t.dy - blockH / 2;
     lines.forEach((ln, i) => ctx.fillText(ln, W / 2 + t.dx - metrics[i].shift, top + asc + i * lh));
     t.box = { x: W / 2 + t.dx - halfW, y: top, w: halfW * 2, h: blockH };
@@ -669,11 +625,11 @@
       toast(err.message, true);
     } finally {
       sending = false;
-      sendBtn.disabled = false; sendBtn.textContent = 'Send to wall';
+      sendBtn.disabled = false; sendBtn.textContent = 'Send to lantern';
     }
   });
 
-  // ---------- After Send: "Look up — your light is on the wall" ----------
+  // ---------- After Send: "Look up — your light is on the lantern" ----------
   const afterglow = $('#afterglow');
   let agTimer;
   function showAfterglow() {
@@ -689,14 +645,14 @@
     agTimer = setTimeout(() => { afterglow.hidden = true; }, 1400);
   }
 
-  // ---------- Idle reset (so the next visitor starts at the wall) ----------
+  // ---------- Idle reset (so the next visitor starts at the three choices) ----------
   let idleTimer;
   function touch() {
     clearTimeout(idleTimer);
     if ($('#screen-setup').hidden === false) return;
     idleTimer = setTimeout(() => {
       if (current != null) goWall();
-      closeChooser(true); hideAfterglow();
+      hideAfterglow();
     }, IDLE_MS);
   }
   document.addEventListener('pointerdown', touch);
