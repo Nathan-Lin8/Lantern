@@ -1,14 +1,14 @@
-// iPad controller. Only the main lantern (interactive in layout.js) can be customized, so the iPad opens
-// straight onto its three choices (Draw, Write, Change the light) under a live picture of the whole exhibit.
-// After Send: the reveal, "Look up", then back to the three choices for the next visitor.
-// The picture animates with the same ambient engine as the projector (ambient.js); nothing in it is tappable.
+// iPad controller. Only the main lantern (interactive in layout.js) can be customized. The home screen is a
+// live picture of the whole exhibit with the main lantern pulsing: tap it (or the prompt) to open the editor,
+// which has Draw / Write / Light tabs. After Send: the reveal, "Look up", then back home for the next visitor.
+// The picture animates with the same ambient engine as the projector (ambient.js).
 (() => {
   const $ = s => document.querySelector(s);
 
   // ---------- Settings ----------
   const FACE_MAX = 800;            // longest side of the drawing space; the other side follows the lantern's shape
   const SS = 1.5;                  // export scale -> a 3:4 lantern exports at 900 x 1200
-  const IDLE_MS = 90_000;          // editor returns to the three choices after this long untouched
+  const IDLE_MS = 90_000;          // editor returns home after this long untouched
   const AFTERGLOW_MS = 4200;       // "Look up" message after sending
   let W = 600, H = 800;            // current drawing space, set per lantern in openEditor()
   let shape = 'rect';              // current lantern's shape
@@ -28,10 +28,57 @@
   };
   const HINTS = {
     draw: 'Draw with your finger or Apple Pencil',
-    text: 'Type your message, then drag the box to place it',
+    text: 'Your message stays centered on the lantern',
     color: 'This is how the lantern will glow'
   };
-  const MODE_NAMES = { draw: 'Draw', text: 'Write', color: 'Change the light' };
+
+  // Stamps: drawn in a 100 x 100 box, filled with the current ink color
+  const star = (n, r1, r2) => {
+    const pts = [];
+    for (let i = 0; i < n * 2; i++) {
+      const a = -Math.PI / 2 + i * Math.PI / n, r = i % 2 ? r2 : r1;
+      pts.push(`${(50 + Math.cos(a) * r).toFixed(1)} ${(50 + Math.sin(a) * r).toFixed(1)}`);
+    }
+    return 'M' + pts.join(' L') + ' Z';
+  };
+  const ring = (cx, cy, r) => `M${cx + r} ${cy} A${r} ${r} 0 1 0 ${cx - r} ${cy} A${r} ${r} 0 1 0 ${cx + r} ${cy} Z`;
+  const petals = (n, d, r) => Array.from({ length: n }, (_, i) => {
+    const a = -Math.PI / 2 + i * 2 * Math.PI / n;
+    return ring(50 + Math.cos(a) * d, 50 + Math.sin(a) * d, r);
+  }).join(' ');
+  const rays = (n, r1, r2, w) => Array.from({ length: n }, (_, i) => {
+    const a = i * 2 * Math.PI / n, b = w / 2;
+    const P = (r, da) => `${(50 + Math.cos(a + da) * r).toFixed(1)} ${(50 + Math.sin(a + da) * r).toFixed(1)}`;
+    return `M${P(r1, -b)} L${P(r2, 0)} L${P(r1, b)} Z`;
+  }).join(' ');
+  const STAMPS = {
+    star:    { label: 'Star',    d: star(5, 48, 20) },
+    heart:   { label: 'Heart',   d: 'M50 90 C22 70 4 52 4 32 C4 16 16 6 29 6 C39 6 46 12 50 21 C54 12 61 6 71 6 C84 6 96 16 96 32 C96 52 78 70 50 90 Z' },
+    sparkle: { label: 'Sparkle', d: 'M50 2 C53 35 65 47 98 50 C65 53 53 65 50 98 C47 65 35 53 2 50 C35 47 47 35 50 2 Z' },
+    moon:    { label: 'Moon',    d: 'M64 4 A46 46 0 1 0 96 70 A38 38 0 1 1 64 4 Z' },
+    flower:  { label: 'Flower',  d: petals(5, 25, 21), hole: [50, 50, 12] },
+    sun:     { label: 'Sun',     d: ring(50, 50, 24) + ' ' + rays(10, 31, 49, 0.32) },
+    leaf:    { label: 'Leaf',    d: 'M10 92 C8 50 30 12 92 8 C92 62 60 90 10 92 Z', vein: true },
+    cloud:   { label: 'Cloud',   d: 'M26 78 C12 78 4 68 4 57 C4 45 14 37 26 38 C28 24 40 14 54 14 C68 14 79 24 81 37 C91 38 96 47 96 57 C96 69 87 78 75 78 Z' }
+  };
+  const stampPaths = {};
+  const stampPath = k => stampPaths[k] || (stampPaths[k] = new Path2D(STAMPS[k].d));
+  // Paints stamp k centered at (x, y), size px across
+  function paintStamp(ctx, k, x, y, size, color) {
+    const S = STAMPS[k];
+    ctx.save();
+    ctx.translate(x - size / 2, y - size / 2); ctx.scale(size / 100, size / 100);
+    ctx.fillStyle = color;
+    ctx.fill(stampPath(k));
+    if (S.hole || S.vein) {             // cut a center out of the flower / a vein down the leaf
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.beginPath();
+      if (S.hole) ctx.arc(S.hole[0], S.hole[1], S.hole[2], 0, Math.PI * 2), ctx.fill();
+      else { ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.moveTo(18, 84); ctx.quadraticCurveTo(48, 54, 80, 20); ctx.stroke(); }
+    }
+    ctx.restore();
+  }
+  const stampSize = brush => Math.round(36 + brush * 3.4);   // brush 4..60 -> about 50..240 px on the 800 px face
 
   // ---------- State ----------
   let lanterns = [];
@@ -40,12 +87,12 @@
   let mode = null;      // 'draw' | 'text' | 'color'
   const ed = {
     base: null, strokes: [], color: '#f4a64a',
-    brush: { color: INK[0], size: 16, erase: false },
-    text: { value: '', size: 96, color: INK[0], font: 'hand', dx: 0, dy: 0, box: null, placing: false }
+    brush: { color: INK[0], size: 16, erase: false, stamp: null },
+    text: { value: '', size: 96, color: INK[0], font: 'hand' },
+    startColor: null, inkDirty: false
   };
 
   // ---------- Startup: setup check -> wall ----------
-  const conn = $('#conn');
   const show = id => ['screen-setup', 'screen-wall', 'screen-editor']
     .forEach(s => { $('#' + s).hidden = s !== id; });
 
@@ -74,10 +121,6 @@
       onRemove: id => {
         lanterns = lanterns.filter(x => x.id !== id);
         art.delete(id); syncEngine();
-      },
-      onStatus: status => {
-        conn.className = 'conn ' + status;
-        conn.querySelector('span').textContent = status === 'open' ? 'Wall connected' : 'Reconnecting…';
       }
     });
   }
@@ -100,14 +143,15 @@
       const custom = isMain(l) || !!a.img;      // the main lantern keeps its color; decorative ones drift
       return { id: l.id, ...l.wall, color: l.color, content: custom, custom };
     }), 16 / 9);
-    refreshChoices();
+    refreshPrompt();
+    placeSpot();
   }
 
-  // The three choices work only once there's a main lantern
-  function refreshChoices() {
+  // The lantern (and the prompt under it) open the editor only once there's a main lantern
+  function refreshPrompt() {
     const ready = mainId != null;
-    document.querySelectorAll('#choices button').forEach(b => { b.disabled = !ready; });
-    $('#homePrompt').textContent = ready ? 'Leave your light on the lantern'
+    $('#homePrompt').disabled = !ready;
+    $('#homePrompt').textContent = ready ? 'Leave your light on the large lantern'
       : lanterns.length ? 'The main lantern isn\u2019t set up yet' : 'Waking the lanterns…';
   }
 
@@ -190,9 +234,11 @@
         g.globalAlpha = 1 - k; g.drawImage(ps.c, R.x - ps.mg.x, R.y - ps.mg.top, ps.c.width / d, ps.c.height / d);
       } else a.prev = null;
       if (Lt) Ambient.paintHalo(g, R, Lt, k, 1.2);
+      if (isMain(l)) paintBeacon(g, l, R, now);
       const sp = spriteFor(a, name, l, l.color, a.img, R.w, R.h);
       g.globalAlpha = k; g.drawImage(sp.c, R.x - sp.mg.x, R.y - sp.mg.top, sp.c.width / d, sp.c.height / d);
       g.globalAlpha = 1;
+      if (isMain(l)) paintInnerGlow(g, l, R, now);
       if (Lt) {
         const glow = Lt.glow;
         if (a.prev) Lt.glow += Math.sin(Math.PI * T) * 0.7;                // bloom
@@ -201,6 +247,112 @@
       }
       if (a.burst && !Ambient.drawBurst(g, a.burst, R.x, R.y, R.w, R.h, now)) a.burst = null;
     }
+    const main = lanterns.find(isMain);
+    if (main) {
+      const R = { x: B.x + main.wall.x * B.w, y: B.y + main.wall.y * B.h, w: main.wall.w * B.w, h: main.wall.h * B.h };
+      paintShimmer(g, main, R, now);
+      paintMotes(g, main, R, B, now);
+    }
+  }
+
+  // ---------- Quiet cues that the big lantern is the one to touch (no words needed) ----------
+  // 1. The room is a little darker away from it, as if it's the one lighting the space (#spot, a full-screen
+  //    gradient centered on it, positioned in fitWall)
+  function placeSpot() {
+    const l = lanterns.find(isMain), spot = $('#spot');
+    if (!l || !spot) return;
+    const r = wall.getBoundingClientRect();
+    spot.style.setProperty('--sx', r.left + (l.wall.x + l.wall.w / 2) * r.width + 'px');
+    spot.style.setProperty('--sy', r.top + (l.wall.y + l.wall.h / 2) * r.height + 'px');
+    spot.style.setProperty('--sr', Math.max(l.wall.w * r.width, l.wall.h * r.height) * 0.75 + 'px');
+  }
+
+  // 2. Every so often a soft glint slides down across its paper, like light catching it
+  const SHIMMER_EVERY = 9, SHIMMER_LEN = 1.8;
+  function paintShimmer(g, l, R, now) {
+    if (Ambient.reduceMotion.matches) return;
+    const p = ((now / 1000) % SHIMMER_EVERY) / SHIMMER_LEN;
+    if (p >= 1) return;
+    const e = Ambient.ease.outCubic(p), band = R.h * 0.35;
+    const y = R.y - band + e * (R.h + 2 * band), a = 0.16 * Math.sin(Math.PI * p);
+    g.save();
+    LanternArt.facePath(g, l.shape, R.x, R.y, R.w, R.h); g.clip();
+    g.globalCompositeOperation = 'lighter';
+    const sg = g.createLinearGradient(0, y - band, 0, y + band);
+    sg.addColorStop(0, 'rgba(255,236,200,0)'); sg.addColorStop(0.5, `rgba(255,236,200,${a})`); sg.addColorStop(1, 'rgba(255,236,200,0)');
+    g.fillStyle = sg; g.fillRect(R.x, y - band, R.w, band * 2);
+    g.restore();
+  }
+
+  // 3. Tiny motes of light drift in from around the room and are drawn into it, like moths to a lamp
+  const motes = [];
+  let moteClock = 0, moteLast = 0;
+  function paintMotes(g, l, R, B, now) {
+    if (Ambient.reduceMotion.matches) return;
+    const dt = moteLast ? Math.min(0.1, (now - moteLast) / 1000) : 0;
+    moteLast = now; moteClock -= dt;
+    const cx = R.x + R.w / 2, cy = R.y + R.h / 2;
+    if (moteClock <= 0 && motes.length < 14) {
+      moteClock = 0.5 + Math.random() * 0.7;
+      const ang = Math.random() * Math.PI * 2, dist = Math.max(B.w, B.h) * (0.35 + Math.random() * 0.2);
+      motes.push({
+        x0: cx + Math.cos(ang) * dist, y0: cy + Math.sin(ang) * dist * 0.6,
+        bend: (Math.random() - 0.5) * dist * 0.5, t: 0, life: 5 + Math.random() * 3,
+        r: 0.8 + Math.random() * 1.4, tw: Math.random() * 6
+      });
+    }
+    const c = Ambient.mix(Ambient.rgb(l.color) || [255, 210, 154], [255, 200, 130], 0.5);
+    g.save();
+    g.globalCompositeOperation = 'lighter';
+    for (let i = motes.length - 1; i >= 0; i--) {
+      const m = motes[i];
+      m.t += dt / m.life;
+      if (m.t >= 1) { motes.splice(i, 1); continue; }
+      const e = 1 - Math.pow(1 - m.t, 2);
+      // aim at the lantern's edge, not its middle, then fade as it arrives
+      const tx = cx + (m.x0 - cx) * 0.18, ty = cy + (m.y0 - cy) * 0.18;
+      const nx = -(m.y0 - cy), ny = m.x0 - cx, nl = Math.hypot(nx, ny) || 1;
+      const arc = Math.sin(Math.PI * e) * m.bend;
+      const x = m.x0 + (tx - m.x0) * e + nx / nl * arc, y = m.y0 + (ty - m.y0) * e + ny / nl * arc;
+      const a = Math.min(1, m.t * 5) * (1 - m.t) * (0.55 + 0.45 * Math.sin(now / 300 + m.tw));
+      const rr = m.r * 4;
+      const mg = g.createRadialGradient(x, y, 0, x, y, rr);
+      mg.addColorStop(0, Ambient.css(c, 0.8 * a)); mg.addColorStop(0.3, Ambient.css(c, 0.3 * a)); mg.addColorStop(1, Ambient.css(c, 0));
+      g.fillStyle = mg; g.fillRect(x - rr, y - rr, rr * 2, rr * 2);
+    }
+    g.restore();
+  }
+
+  // The main lantern glows a little warmer than the rest and breathes slowly, with a faint candle flicker,
+  // so it reads as the one to tap without looking like a button
+  const BREATH_S = 5.5;
+  function paintBeacon(g, l, R, now) {
+    const c = Ambient.mix(Ambient.rgb(l.color) || [255, 210, 154], [255, 178, 96], 0.35);
+    const t = now / 1000;
+    const breath = Ambient.reduceMotion.matches ? 0.5 : 0.5 - 0.5 * Math.cos(t * 2 * Math.PI / BREATH_S);
+    const flicker = Ambient.reduceMotion.matches ? 0 : 0.04 * (Math.sin(t * 7.3) * Math.sin(t * 3.1 + 1.7));
+    const a = 0.16 + 0.12 * breath + flicker;
+    g.save();
+    g.translate(R.x + R.w / 2, R.y + R.h / 2); g.scale(R.w * 0.95, R.h * 0.8);
+    const hg = g.createRadialGradient(0, 0, 0, 0, 0, 1);
+    hg.addColorStop(0, Ambient.css(c, a)); hg.addColorStop(0.55, Ambient.css(c, a * 0.4)); hg.addColorStop(1, Ambient.css(c, 0));
+    g.fillStyle = hg; g.fillRect(-1, -1, 2, 2);
+    g.restore();
+  }
+  // ...and the paper itself brightens a touch on each breath, like a flame drawing in air
+  function paintInnerGlow(g, l, R, now) {
+    if (Ambient.reduceMotion.matches) return;
+    const t = now / 1000, breath = 0.5 - 0.5 * Math.cos(t * 2 * Math.PI / BREATH_S);
+    const a = 0.10 * breath + 0.025 * Math.sin(t * 6.1) * Math.sin(t * 2.3 + 0.4);
+    if (a <= 0) return;
+    g.save();
+    LanternArt.facePath(g, l.shape, R.x, R.y, R.w, R.h); g.clip();
+    g.globalCompositeOperation = 'lighter';
+    g.translate(R.x + R.w / 2, R.y + R.h * 0.55); g.scale(R.w * 0.6, R.h * 0.55);
+    const ig = g.createRadialGradient(0, 0, 0, 0, 0, 1);
+    ig.addColorStop(0, `rgba(255,214,150,${a})`); ig.addColorStop(1, 'rgba(255,214,150,0)');
+    g.fillStyle = ig; g.fillRect(-1, -1, 2, 2);
+    g.restore();
   }
 
   // One animation loop, running only while the wall is on screen
@@ -225,22 +377,32 @@
     const w = Math.min(r.width, r.height * 16 / 9) * 0.94;
     wall.style.width = w + 'px'; wall.style.height = (w * 9 / 16) + 'px';
     sizeSurface('wall');
+    placeSpot();
   }
   new ResizeObserver(fitWall).observe(wallWrap);
 
-  // ---------- The three choices ----------
-  document.querySelectorAll('#choices [data-mode]').forEach(b =>
-    b.addEventListener('click', () => { if (mainId != null) { hideAfterglow(); openEditor(mainId, b.dataset.mode); } }));
+  // ---------- Tap the main lantern (or the prompt) to start ----------
+  function overMain(e) {
+    const l = lanterns.find(isMain);
+    if (!l) return false;
+    const r = wall.getBoundingClientRect(), pad = 0.15;
+    const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height, b = l.wall;
+    return x > b.x - b.w * pad && x < b.x + b.w * (1 + pad) && y > b.y - b.h * pad && y < b.y + b.h * (1 + pad);
+  }
+  const start = () => { if (mainId != null) { hideAfterglow(); openEditor(mainId, 'draw'); } };
+  wallWrap.addEventListener('click', e => { if (overMain(e)) start(); });
+  wallWrap.addEventListener('pointermove', e => wallWrap.classList.toggle('over-main', overMain(e)));
+  $('#homePrompt').addEventListener('click', start);
 
   // ---------- Editor ----------
   const stage = $('#stage'), frame = $('#frame');
   const bg = $('#bg'), ink = $('#ink');
   const bctx = bg.getContext('2d'), ictx = ink.getContext('2d', { willReadFrequently: true });
 
-  // Size the drawing space to the lantern's real proportions: its calibrated projector box (on a 16:9
-  // image), so the exported PNG fills the real lantern without stretching
+  // Size the drawing space to the main lantern's proportions from layout.js (on a 16:9 image). The projector
+  // fits the PNG to its calibrated box; text stays centered however much that stretches it.
   function sizeCanvases(l) {
-    const box = l.proj || l.wall;
+    const box = l.wall || l.proj;
     const aspect = (box.w * 16) / (box.h * 9);   // width / height
     if (aspect >= 1) { W = FACE_MAX; H = Math.round(FACE_MAX / aspect); }
     else { H = FACE_MAX; W = Math.round(FACE_MAX * aspect); }
@@ -261,14 +423,11 @@
     const l = lanterns.find(x => x.id === id);
     current = id; mode = m; shape = l.shape;
     sizeCanvases(l);
-    ed.strokes = []; ed.base = null; ed.color = l.color;
-    ed.brush.erase = false;
-    ed.text = { ...ed.text, value: '', dx: 0, dy: 0, box: null, placing: false, size: Math.round(96 * Math.min(W, H) / 600) };
+    ed.strokes = []; ed.base = null; ed.color = ed.startColor = l.color; ed.inkDirty = false;
+    ed.brush.erase = false; ed.brush.stamp = null;
+    ed.text = { ...ed.text, value: '', size: Math.round(96 * Math.min(W, H) / 600) };
 
-    $('#edTitle').textContent = `The lantern · ${MODE_NAMES[m]}`;
-    ['draw', 'text', 'color'].forEach(k => { $('#tools-' + k).hidden = k !== m; });
-    stage.className = 'stage ' + m;
-    $('#hint').textContent = HINTS[m];
+    setMode(m);
     $('#screen-wall').hidden = true;
     $('#screen-editor').hidden = false;
     fitFrame(); syncControls(); renderBg(); renderInk(); touch();
@@ -280,6 +439,21 @@
         if (current === id) { ed.base = img; renderInk(); }
       } catch { /* start blank */ }
     }
+  }
+
+  function setMode(m) {
+    mode = m;
+    ['draw', 'text', 'color'].forEach(k => { $('#tools-' + k).hidden = k !== m; });
+    document.querySelectorAll('#tabs [data-mode]').forEach(b => b.setAttribute('aria-selected', b.dataset.mode === m));
+    stage.className = 'stage ' + m;
+    updateHint();
+  }
+  document.querySelectorAll('#tabs [data-mode]').forEach(b =>
+    b.addEventListener('click', () => { setMode(b.dataset.mode); touch(); }));
+
+  function updateHint() {
+    const st = mode === 'draw' && ed.brush.stamp;
+    $('#hint').textContent = st ? `Tap the lantern to place a ${STAMPS[st].label.toLowerCase()} · drag to adjust` : HINTS[mode] || '';
   }
 
   function goWall() {
@@ -310,6 +484,7 @@
   }
 
   function drawStroke(ctx, s, from) {
+    if (s.stamp) return paintStamp(ctx, s.stamp, s.x, s.y, s.size, s.color);
     const p = s.points;
     const w = pt => s.size * (0.35 + pt.p * 1.3);
     ctx.save();
@@ -337,10 +512,10 @@
     return out;
   }
 
-  // Text is centered on the letters you actually see (not the font's em box), wrapped to the lantern's
-  // usable width (narrower for round shapes), and shrunk below the chosen size only if it wouldn't fit
+  // Text is always centered on the lantern, horizontally and vertically, measured on the letters you actually
+  // see (not the font's em box). It wraps to the lantern's usable width (narrower for round shapes) and
+  // shrinks below the chosen size only if it wouldn't fit. Centering survives any stretch to the real lantern.
   function drawText(ctx, t) {
-    t.box = null;
     if (!t.value.trim()) return;
     ctx.save();
     ctx.fillStyle = t.color; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
@@ -349,34 +524,33 @@
     const endPad = capsule ? Math.min(W, H) * 0.3 : 0;
     const maxW = W * (round ? 0.7 : 0.84) - (capsule && W > H ? 2 * endPad : 0);
     const maxH = H * (round ? 0.62 : 0.82) - (capsule && H >= W ? 2 * endPad : 0);
-    let size = t.size, lines, lh;
+    let size = t.size, lines, lh, ms;
     for (;;) {
       ctx.font = FONTS[t.font].css.replace('SIZE', Math.round(size));
-      lines = wrapLines(ctx, t.value, maxW);
+      lines = wrapLines(ctx, t.value.trim(), maxW).filter((ln, k, a) => ln || (k > 0 && k < a.length - 1));
       lh = size * 1.1;
-      const widest = Math.max(...lines.map(ln => ctx.measureText(ln).width));
-      if ((widest <= maxW && lines.length * lh <= maxH) || size <= 20) break;
+      ms = lines.map(ln => inkBox(ctx, ln, size));
+      const widest = Math.max(...ms.map(q => q.w));
+      const tall = Math.max(...ms.map((q, k) => k * lh + q.desc)) - Math.min(...ms.map((q, k) => k * lh - q.asc));
+      if ((widest <= maxW && tall <= maxH) || size <= 20) break;
       size *= 0.93;
     }
-    const m = ctx.measureText(lines.join(' ') || 'M');
-    const asc = m.actualBoundingBoxAscent || size * 0.7, desc = m.actualBoundingBoxDescent || size * 0.2;
-    const blockH = (lines.length - 1) * lh + asc + desc;
-    const metrics = lines.map(ln => {
-      const lm = ctx.measureText(ln);
-      const half = lm.actualBoundingBoxRight != null ? (lm.actualBoundingBoxRight + lm.actualBoundingBoxLeft) / 2 : lm.width / 2;
-      const shift = lm.actualBoundingBoxRight != null ? (lm.actualBoundingBoxRight - lm.actualBoundingBoxLeft) / 2 : 0;
-      return { half, shift };
-    });
-    const halfW = Math.max(...metrics.map(q => q.half));
-    // keep the whole block on the lantern while it's dragged around
-    const pad = Math.max(6, 22 * W / (frame.clientWidth || W));    // room for the dashed box around it
-    const padX = pad + (capsule && W > H ? endPad : 0), padY = pad + (capsule && H >= W ? endPad : 0);
-    t.dx = Math.max(-(W / 2 - halfW - padX), Math.min(W / 2 - halfW - padX, t.dx));
-    t.dy = Math.max(-(H / 2 - blockH / 2 - padY), Math.min(H / 2 - blockH / 2 - padY, t.dy));
-    const top = H / 2 + t.dy - blockH / 2;
-    lines.forEach((ln, i) => ctx.fillText(ln, W / 2 + t.dx - metrics[i].shift, top + asc + i * lh));
-    t.box = { x: W / 2 + t.dx - halfW, y: top, w: halfW * 2, h: blockH };
+    // Ink extent of the whole block relative to the first baseline, then put its middle at the center
+    const top = Math.min(...ms.map((q, k) => k * lh - q.asc)), bot = Math.max(...ms.map((q, k) => k * lh + q.desc));
+    const base0 = H / 2 - (top + bot) / 2;
+    lines.forEach((ln, k) => ctx.fillText(ln, W / 2 - ms[k].shift, base0 + k * lh));
     ctx.restore();
+  }
+  // Visible ink box of one line drawn with textAlign center: width, offset of its middle, ascent, descent
+  function inkBox(ctx, ln, size) {
+    if (!ln) return { w: 0, shift: 0, asc: 0, desc: 0 };
+    const m = ctx.measureText(ln), has = m.actualBoundingBoxRight != null;
+    return {
+      w: has ? m.actualBoundingBoxRight + m.actualBoundingBoxLeft : m.width,
+      shift: has ? (m.actualBoundingBoxRight - m.actualBoundingBoxLeft) / 2 : 0,
+      asc: m.actualBoundingBoxAscent ?? size * 0.7,
+      desc: m.actualBoundingBoxDescent ?? size * 0.2
+    };
   }
 
   // Ink layer = what gets sent. Order: existing image, text, strokes (so the eraser works on everything).
@@ -388,61 +562,7 @@
     drawText(ictx, ed.text);
     ed.strokes.forEach(s => drawStroke(ictx, s, 0));
     ictx.restore();
-    textUi();
   }
-
-  // ---------- Text placement: dashed box, "Drag to move" tag and a ✓ Done button ----------
-  // Drawn on the fx layer (never part of the PNG that gets sent)
-  const textDone = $('#textDone'), textTag = $('#textTag');
-  let antsOn = false;
-  function textUi() {
-    const b = mode === 'text' && ed.text.placing && ed.text.box;
-    textDone.hidden = textTag.hidden = !b;
-    $('#hint').textContent = mode !== 'text' ? HINTS[mode]
-      : !ed.text.box ? HINTS.text
-      : ed.text.placing ? 'Drag the box to move your text · tap ✓ Done when it looks right'
-      : 'Tap your text to move it again';
-    if (!b) { if (!sending) clearFx(); return; }
-    const k = frame.clientWidth / W, B = ed.text.box, P = 14;
-    const x = B.x * k - P, y = B.y * k - P, w = B.w * k + 2 * P, h = B.h * k + 2 * P;
-    const fw = frame.clientWidth, fh = frame.clientHeight;
-    Object.assign(textDone.style, { left: Math.min(fw - 50, Math.max(-6, x + w - 26)) + 'px', top: Math.max(-6, Math.min(fh - 50, y - 26)) + 'px' });
-    Object.assign(textTag.style, { left: Math.max(0, x) + 'px', top: Math.min(fh - 30, y + h + 8) + 'px' });
-    paintBox(x, y, w, h);
-    if (!antsOn && !Ambient.reduceMotion.matches) { antsOn = true; requestAnimationFrame(ants); }
-  }
-  let boxRect = null;
-  function paintBox(x, y, w, h, offset = 0) {
-    boxRect = [x, y, w, h];
-    const d = Math.min(2, window.devicePixelRatio || 1);
-    const cw = Math.round(frame.clientWidth * d), ch = Math.round(frame.clientHeight * d);
-    if (fx.width !== cw || fx.height !== ch) { fx.width = cw; fx.height = ch; }
-    const g = fx.getContext('2d');
-    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, fx.width, fx.height);
-    g.setTransform(d, 0, 0, d, 0, 0);
-    g.lineWidth = 2; g.setLineDash([9, 7]); g.lineDashOffset = -offset;
-    g.beginPath(); Ambient.rrect(g, x, y, w, h, 12);
-    g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = 4; g.stroke();     // dark edge so it shows on light lanterns
-    g.strokeStyle = 'rgba(255,248,236,0.95)'; g.lineWidth = 2; g.stroke();
-    g.setLineDash([]);
-    for (const [cx, cy] of [[x, y], [x + w, y], [x, y + h], [x + w, y + h]]) {   // corner dots
-      g.beginPath(); g.arc(cx, cy, 5, 0, Math.PI * 2);
-      g.fillStyle = '#fff8ec'; g.fill(); g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = 1.5; g.stroke();
-    }
-  }
-  // Marching dashes, slowly, so the box reads as "you can move this"
-  function ants(now) {
-    if (mode !== 'text' || !ed.text.placing || !boxRect || sending) { antsOn = false; return; }
-    paintBox(...boxRect, (now / 60) % 16);
-    requestAnimationFrame(ants);
-  }
-  function clearFx() {
-    boxRect = null;
-    fx.getContext('2d').clearRect(0, 0, fx.width, fx.height);
-  }
-  function placeText(on) { ed.text.placing = on; textUi(); }
-  textDone.addEventListener('click', () => { placeText(false); touch(); });
-  textDone.addEventListener('pointerdown', e => e.stopPropagation());
 
   function fitFrame() {
     const r = stage.getBoundingClientRect();
@@ -470,7 +590,7 @@
   // Long press on the drawing shouldn't pop up Save Image / Copy
   ['contextmenu', 'selectstart'].forEach(evt => stage.addEventListener(evt, e => e.preventDefault()));
 
-  let active = null, cur = null, drag = null, sawPen = false, sending = false;
+  let active = null, cur = null, sawPen = false, sending = false;
   const pt = e => {
     const r = ink.getBoundingClientRect();
     return {
@@ -483,40 +603,41 @@
   ink.addEventListener('pointerdown', e => {
     if (e.pointerType === 'pen') sawPen = true;
     if (sawPen && e.pointerType === 'touch') return;      // palm rejection once a Pencil is in use
-    if (active !== null || mode === 'color') return;
+    if (active !== null || mode !== 'draw') return;
     e.preventDefault();
     ink.setPointerCapture(e.pointerId);
     active = e.pointerId; touch();
     const p = pt(e);
-    if (mode === 'draw') {
+    ed.inkDirty = true;
+    if (ed.brush.stamp) {           // drop the stamp where they tapped; dragging nudges it until release
+      cur = { stamp: ed.brush.stamp, color: ed.brush.color, size: stampSize(ed.brush.size), x: p.x, y: p.y };
+      ed.strokes.push(cur);
+      renderInk();
+    } else {
       cur = { color: ed.brush.color, size: ed.brush.size, erase: ed.brush.erase, points: [p] };
       ed.strokes.push(cur);
       ictx.save(); facePath(ictx); ictx.clip(); drawStroke(ictx, cur, 0); ictx.restore();
-    } else if (mode === 'text' && ed.text.box) {
-      drag = { x: p.x, y: p.y, dx: ed.text.dx, dy: ed.text.dy };
-      if (!ed.text.placing) placeText(true);
     }
   });
 
   ink.addEventListener('pointermove', e => {
     if (e.pointerId !== active) return;
     e.preventDefault();
-    if (mode === 'draw' && cur) {
+    if (cur && cur.stamp) {
+      const p = pt(e);
+      cur.x = p.x; cur.y = p.y;
+      renderInk();
+    } else if (cur) {
       const from = cur.points.length;
       const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
       (evs.length ? evs : [e]).forEach(ev => cur.points.push(pt(ev)));
       ictx.save(); facePath(ictx); ictx.clip(); drawStroke(ictx, cur, from); ictx.restore();
-    } else if (mode === 'text' && drag) {
-      const p = pt(e);
-      ed.text.dx = drag.dx + p.x - drag.x;
-      ed.text.dy = drag.dy + p.y - drag.y;
-      renderInk();
     }
   });
 
   const endPointer = e => {
     if (e.pointerId !== active) return;
-    active = null; cur = null; drag = null;
+    active = null; cur = null;
     syncControls();
   };
   ink.addEventListener('pointerup', endPointer);
@@ -539,6 +660,23 @@
   makeSwatches($('#textSw'), INK, c => { ed.text.color = c; renderInk(); });
   makeSwatches($('#glowSw'), GLOW, c => { ed.color = c; renderBg(); });
 
+  Object.entries(STAMPS).forEach(([key, st]) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'stamp'; b.dataset.s = key;
+    b.setAttribute('aria-label', st.label); b.title = st.label;
+    const c = document.createElement('canvas'), d = 2;
+    c.width = c.height = 40 * d;
+    const g = c.getContext('2d'); g.scale(d, d);
+    paintStamp(g, key, 20, 20, 38, '#f6eee4');
+    b.append(c);
+    b.addEventListener('click', () => {      // tap again to put it away and go back to the brush
+      ed.brush.stamp = ed.brush.stamp === key ? null : key;
+      if (ed.brush.stamp) ed.brush.erase = false;
+      syncControls(); touch();
+    });
+    $('#stamps').append(b);
+  });
+
   Object.entries(FONTS).forEach(([key, f]) => {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'chip'; b.dataset.f = key; b.textContent = f.label;
@@ -547,14 +685,18 @@
     $('#fontChips').append(b);
   });
 
-  $('#eraser').addEventListener('click', () => { ed.brush.erase = !ed.brush.erase; syncControls(); });
+  $('#eraser').addEventListener('click', () => {
+    ed.brush.erase = !ed.brush.erase;
+    if (ed.brush.erase) ed.brush.stamp = null;
+    syncControls();
+  });
   $('#size').addEventListener('input', e => { ed.brush.size = +e.target.value; syncControls(); touch(); });
-  $('#tsize').addEventListener('input', e => { ed.text.size = +e.target.value; ed.text.placing = true; renderInk(); touch(); });
-  $('#txt').addEventListener('input', e => { ed.text.value = e.target.value; ed.text.placing = true; renderInk(); touch(); });
+  $('#tsize').addEventListener('input', e => { ed.text.size = +e.target.value; ed.inkDirty = true; renderInk(); touch(); });
+  $('#txt').addEventListener('input', e => { ed.text.value = e.target.value; ed.inkDirty = true; renderInk(); touch(); });
   $('#customGlow').addEventListener('input', e => { ed.color = e.target.value; renderBg(); syncControls(); touch(); });
-  $('#undo').addEventListener('click', () => { ed.strokes.pop(); renderInk(); syncControls(); });
+  $('#undo').addEventListener('click', () => { ed.strokes.pop(); ed.inkDirty = true; renderInk(); syncControls(); });
   const clearAll = () => {
-    ed.strokes = []; ed.base = null; ed.text.value = ''; ed.text.dx = ed.text.dy = 0; ed.text.placing = false;
+    ed.strokes = []; ed.base = null; ed.text.value = ''; ed.inkDirty = true;
     renderInk(); syncControls();
   };
   $('#clearDraw').addEventListener('click', clearAll);
@@ -566,6 +708,9 @@
     press('#textSw .sw', x => x.dataset.c === ed.text.color);
     press('#glowSw .sw', x => x.dataset.c === ed.color);
     press('#fontChips .chip', x => x.dataset.f === ed.text.font);
+    press('#stamps .stamp', x => x.dataset.s === ed.brush.stamp);
+    $('#sizeLabel').textContent = ed.brush.stamp ? 'Stamp size' : 'Brush size';
+    updateHint();
     $('#eraser').setAttribute('aria-pressed', ed.brush.erase);
     $('#undo').disabled = !ed.strokes.length;
     $('#size').value = ed.brush.size;
@@ -604,19 +749,20 @@
     if (current == null) return;
     const id = current;
     sendBtn.disabled = true; sendBtn.textContent = 'Sending…';
-    sending = true; placeText(false);
+    sending = true;
     frame.classList.add('sent');
     const showUntil = performance.now() + sendSparkle() * 0.85;
     try {
-      if (mode === 'color') {
-        await LW.rpc('set_lantern_color', { p_id: id, p_color: ed.color });
-      } else if (inkIsEmpty()) {
-        await LW.rpc('set_lantern_image', { p_id: id, p_path: null });
-      } else {
-        const blob = await new Promise(r => ink.toBlob(r, 'image/png'));
-        const path = await LW.uploadPng(id, blob);
-        await LW.rpc('set_lantern_image', { p_id: id, p_path: path });
+      // Everything from all three tabs goes out together: the drawing/text if it changed, the light if it changed
+      if (ed.inkDirty) {
+        if (inkIsEmpty()) await LW.rpc('set_lantern_image', { p_id: id, p_path: null });
+        else {
+          const blob = await new Promise(r => ink.toBlob(r, 'image/png'));
+          const path = await LW.uploadPng(id, blob);
+          await LW.rpc('set_lantern_image', { p_id: id, p_path: path });
+        }
       }
+      if (ed.color !== ed.startColor) await LW.rpc('set_lantern_color', { p_id: id, p_color: ed.color });
       const wait = showUntil - performance.now();   // let the sparkle play before leaving
       if (wait > 0) await new Promise(r => setTimeout(r, wait));
       if (current === id) { goWall(); showAfterglow(); }
@@ -630,11 +776,12 @@
   });
 
   // ---------- After Send: "Look up — your light is on the lantern" ----------
-  const afterglow = $('#afterglow');
+  const afterglow = $('#afterglow'), homeActions = $('.home-actions');
   let agTimer;
   function showAfterglow() {
     clearTimeout(agTimer);
     afterglow.hidden = false;
+    homeActions.classList.add('away');      // the prompt steps aside while "Look up" is showing
     requestAnimationFrame(() => requestAnimationFrame(() => afterglow.classList.add('on')));
     agTimer = setTimeout(hideAfterglow, AFTERGLOW_MS);
   }
@@ -642,10 +789,10 @@
     clearTimeout(agTimer);
     if (afterglow.hidden) return;
     afterglow.classList.remove('on');
-    agTimer = setTimeout(() => { afterglow.hidden = true; }, 1400);
+    agTimer = setTimeout(() => { afterglow.hidden = true; homeActions.classList.remove('away'); }, 1400);
   }
 
-  // ---------- Idle reset (so the next visitor starts at the three choices) ----------
+  // ---------- Idle reset (so the next visitor starts at the home screen) ----------
   let idleTimer;
   function touch() {
     clearTimeout(idleTimer);

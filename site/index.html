@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Caveat:wght@600&family=Cormorant+Garamond:ital,wght@0,500;0,600;1,400;1,500&family=Figtree:wght@400;500;600&family=Fraunces:opsz,wght@9..144,600&display=swap">
-  <link rel="stylesheet" href="controller.css">
+  <link rel="stylesheet" href="controller.css?v=11094">
 </head>
 <body>
   <div class="sky" aria-hidden="true"></div>
@@ -25,25 +25,16 @@
       </div>
     </section>
 
-    <!-- Screen 1: home. A live picture of the whole exhibit (atmosphere only, nothing to tap),
-         then the three things a visitor can do to the main lantern. -->
+    <!-- Screen 1: home. A live picture of the whole exhibit. The main lantern pulses: tap it to start. -->
     <section class="screen" id="screen-wall" hidden>
-      <header class="bar">
-        <h1 class="brand">Lantern Wall</h1>
-        <div class="conn" id="conn"><i></i><span>Connecting…</span></div>
-      </header>
-      <div class="wall-wrap" id="wallWrap" aria-hidden="true">
+      <div class="wall-wrap" id="wallWrap">
         <div class="wall" id="wall">
-          <canvas class="wall-art" id="wallCanvas"></canvas>
+          <canvas class="wall-art" id="wallCanvas" aria-hidden="true"></canvas>
         </div>
       </div>
+      <div class="spot" id="spot" aria-hidden="true"></div>
       <div class="home-actions">
-        <p class="prompt" id="homePrompt">Leave your light on the lantern</p>
-        <div class="choices row3" id="choices">
-          <button type="button" data-mode="draw"><span class="letter">A</span><b>Draw</b><span>Finger or Apple Pencil</span></button>
-          <button type="button" data-mode="text"><span class="letter">B</span><b>Write</b><span>Type a short message</span></button>
-          <button type="button" data-mode="color"><span class="letter">C</span><b>Change the light</b><span>Pick a color</span></button>
-        </div>
+        <button type="button" class="prompt" id="homePrompt">Leave your light on the large lantern</button>
       </div>
     </section>
 
@@ -51,7 +42,11 @@
     <section class="screen" id="screen-editor" hidden>
       <header class="bar">
         <button type="button" class="btn ghost" id="back">← Back</button>
-        <h2 class="ed-title" id="edTitle">The lantern</h2>
+        <div class="tabs" id="tabs" role="tablist" aria-label="What to do">
+          <button type="button" role="tab" data-mode="draw">Draw</button>
+          <button type="button" role="tab" data-mode="text">Write</button>
+          <button type="button" role="tab" data-mode="color">Light</button>
+        </div>
         <button type="button" class="btn primary" id="send">Send to lantern</button>
       </header>
 
@@ -61,8 +56,6 @@
             <canvas id="bg"></canvas>
             <canvas id="ink"></canvas>
             <canvas id="fx" aria-hidden="true"></canvas>
-            <button type="button" class="text-done" id="textDone" hidden aria-label="Done placing text">✓ Done</button>
-            <span class="text-tag" id="textTag" hidden>✥ Drag to move</span>
           </div>
           <p class="hint" id="hint"></p>
         </div>
@@ -75,7 +68,11 @@
               <div class="swatches" id="inkSw"></div>
             </div>
             <div class="group">
-              <span class="label">Brush size</span>
+              <span class="label">Stamps · tap one, then tap the lantern</span>
+              <div class="stamps" id="stamps"></div>
+            </div>
+            <div class="group">
+              <span class="label" id="sizeLabel">Brush size</span>
               <div class="row">
                 <input type="range" id="size" min="4" max="60" value="16" aria-label="Brush size">
                 <span class="size-dot"><i id="sizeDot"></i></span>
@@ -140,11 +137,11 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
-  <script src="config.js"></script>
-  <script src="layout.js"></script>
-  <script src="lw.js"></script>
-  <script src="ambient.js"></script>
-  <script src="lantern-art.js"></script>
-  <script src="controller.js"></script>
+  <script src="config.js?v=11094"></script>
+  <script src="layout.js?v=11094"></script>
+  <script src="lw.js?v=11094"></script>
+  <script src="ambient.js?v=11094"></script>
+  <script src="lantern-art.js?v=11094"></script>
+  <script src="controller.js?v=11094"></script>
 </body>
 </html>

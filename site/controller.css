@@ -84,10 +84,6 @@ button { cursor: pointer; }
   font-size: 28px; letter-spacing: 0.02em; color: var(--amber-hi);
   text-shadow: 0 0 18px rgba(244, 166, 74, 0.35);
 }
-.conn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); font-size: 13px; color: var(--muted); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
-.conn i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); transition: background 1s, box-shadow 1s; }
-.conn.open i { background: var(--good); box-shadow: 0 0 10px var(--good); }
-.conn.closed i { background: var(--bad); }
 
 .btn {
   border: 1px solid var(--line-2); background: var(--panel-2); border-radius: 999px;
@@ -108,7 +104,7 @@ button { cursor: pointer; }
 
 /* ---------- Wall screen ---------- */
 .prompt {
-  margin: 4px 0 0; text-align: center;
+  margin: 4px 0 0; text-align: center; background: none; border: 0; padding: 8px 16px; cursor: pointer;
   font-family: var(--f-display); font-weight: 500; font-style: italic;
   font-size: clamp(28px, 4vw, 44px); letter-spacing: 0.01em;
   color: var(--ink); text-wrap: balance;
@@ -119,42 +115,33 @@ button { cursor: pointer; }
   50% { opacity: 1; text-shadow: 0 0 22px rgba(244, 166, 74, 0.5); }
 }
 
-.wall-wrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
-.home-actions { flex: none; display: flex; flex-direction: column; gap: 14px; align-items: center; padding-bottom: 6px; }
-.home-actions .prompt { margin: 0; }
-.choices.row3 { width: min(980px, 100%); grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.choices.row3 button { min-height: 92px; }
-@media (max-width: 760px) { .choices.row3 { grid-template-columns: minmax(0, 1fr); } .choices.row3 button { min-height: 72px; } }
+.wall-wrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.wall-wrap.over-main { cursor: pointer; }
+.home-actions { flex: none; display: flex; justify-content: center; padding-bottom: 10px; transition: opacity 1.2s var(--slow); }
+.spot {
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background: radial-gradient(circle at var(--sx, 50%) var(--sy, 45%), transparent var(--sr, 200px), rgba(6, 5, 10, 0.42) calc(var(--sr, 200px) * 3.2));
+}
+.home-actions { position: relative; z-index: 1; }
+.home-actions.away { opacity: 0; pointer-events: none; }
 .wall { position: relative; }
 /* One canvas paints every lantern, their halos and the wisps; it spills a little past the wall for glow */
 .wall-art { position: absolute; pointer-events: none; }
-/* ---------- Choices ---------- */
-.choices { display: grid; gap: 12px; }
-.choices button {
-  display: grid; grid-template-columns: 52px 1fr; grid-template-rows: auto auto; column-gap: 16px; align-items: center;
-  text-align: left; padding: 14px 18px; min-height: 78px;
-  border-radius: 20px; border: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(255, 236, 210, 0.06), rgba(255, 236, 210, 0.02));
-  transition: border-color 0.5s var(--slow), box-shadow 0.5s var(--slow), background 0.5s var(--slow), transform 0.3s var(--slow);
-}
-.choices button:hover, .choices button:active {
-  border-color: rgba(244, 166, 74, 0.55);
-  background: linear-gradient(180deg, rgba(244, 166, 74, 0.14), rgba(244, 166, 74, 0.04));
-  box-shadow: 0 0 30px rgba(244, 166, 74, 0.25), inset 0 0 20px rgba(244, 166, 74, 0.08);
-}
-.choices button:active { transform: scale(0.985); }
-.choices .letter {
-  grid-row: span 2; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center;
-  font-family: var(--f-display); font-weight: 600; font-size: 26px; color: var(--amber-hi);
-  background: radial-gradient(circle at 50% 40%, rgba(244, 166, 74, 0.35), rgba(244, 166, 74, 0.05) 70%);
-  box-shadow: 0 0 18px rgba(244, 166, 74, 0.3), inset 0 0 0 1px rgba(255, 210, 154, 0.25);
-}
-.choices b { font-size: 18px; font-weight: 600; }
-.choices span:last-child { color: var(--muted); font-size: 14px; }
-.choices button:disabled { opacity: 0.35; cursor: not-allowed; }
-
 /* ---------- Editor ---------- */
-.ed-title { margin: 0 auto; font-family: var(--f-display); font-weight: 600; font-size: 26px; text-align: center; letter-spacing: 0.01em; }
+.tabs {
+  margin: 0 auto; display: flex; gap: 4px; padding: 4px; border-radius: 999px;
+  background: var(--panel); border: 1px solid var(--line); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+}
+.tabs button {
+  border: 0; background: transparent; border-radius: 999px; min-height: 44px; padding: 0 22px;
+  font-weight: 500; font-size: 16px; color: var(--muted);
+  transition: background 0.5s var(--slow), color 0.5s var(--slow), box-shadow 0.5s var(--slow);
+}
+.tabs button[aria-selected="true"] {
+  color: var(--amber-ink); font-weight: 600;
+  background: radial-gradient(120% 140% at 50% 0%, #ffe2b8, var(--amber) 70%);
+  box-shadow: 0 0 16px rgba(244, 166, 74, 0.45);
+}
 .ed-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 16px; }
 .stage {
   position: relative; min-height: 0; border-radius: 24px;
@@ -168,21 +155,6 @@ button { cursor: pointer; }
 .frame canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; border-radius: 14px; }
 .frame #fx { pointer-events: none; border-radius: 0; }
 .stage.draw #ink { cursor: crosshair; }
-.stage.text #ink { cursor: move; }
-.text-done {
-  position: absolute; z-index: 2; min-height: 48px; min-width: 48px; padding: 0 16px;
-  border: 0; border-radius: 999px; font-weight: 600; font-size: 16px; color: var(--amber-ink);
-  background: radial-gradient(120% 140% at 50% 0%, #ffe2b8, var(--amber) 65%);
-  box-shadow: 0 0 18px rgba(244, 166, 74, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
-  touch-action: manipulation; animation: fade-in 0.5s var(--slow) both;
-}
-.text-done[hidden], .text-tag[hidden] { display: none; }
-.text-tag {
-  position: absolute; z-index: 2; pointer-events: none; white-space: nowrap;
-  padding: 5px 12px; border-radius: 999px; font-size: 13px; font-weight: 500;
-  background: rgba(12, 10, 16, 0.75); color: var(--ink); border: 1px solid var(--line-2);
-  animation: fade-in 0.5s var(--slow) both;
-}
 .hint { position: absolute; left: 0; right: 0; bottom: 10px; margin: 0; text-align: center; font-size: 13px; color: var(--muted); letter-spacing: 0.02em; pointer-events: none; }
 
 .tools {
@@ -218,6 +190,17 @@ textarea {
   width: 100%; resize: none; border-radius: 16px; border: 1px solid var(--line-2); background: rgba(6, 5, 10, 0.6);
   padding: 12px 14px; font-size: 18px; line-height: 1.35;
   -webkit-user-select: text; user-select: text;
+}
+.stamps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.stamp {
+  aspect-ratio: 1; min-height: 52px; border-radius: 14px; border: 1px solid var(--line-2); background: var(--panel-2);
+  display: grid; place-items: center; padding: 8px;
+  transition: border-color 0.5s var(--slow), box-shadow 0.5s var(--slow), background 0.5s var(--slow);
+}
+.stamp canvas { width: 100%; height: 100%; max-width: 40px; max-height: 40px; }
+.stamp[aria-pressed="true"] {
+  border-color: var(--amber); background: rgba(244, 166, 74, 0.14);
+  box-shadow: 0 0 18px rgba(244, 166, 74, 0.35), inset 0 0 0 1px var(--amber);
 }
 .custom { position: relative; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 14px; border: 1px dashed var(--line-2); border-radius: 16px; color: var(--muted); }
 .custom input { width: 40px; height: 40px; border: 0; padding: 0; background: none; border-radius: 8px; }
@@ -258,12 +241,12 @@ textarea {
 }
 @media (max-width: 520px) {
   .btn.primary { padding-inline: 14px; }
-  .ed-title { font-size: 18px; }
+  .tabs button { padding: 0 12px; font-size: 15px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .sky::before, .prompt, .btn.primary, .ag-title { animation: none; }
   .screen:not([hidden]), .panel:not([hidden]) { animation-duration: 0.01s; }
-  .toast, .choices button, .sw, .chip, .frame { transition: none; }
+  .toast, .tabs button, .stamp, .sw, .chip, .frame { transition: none; }
   .afterglow { transition-duration: 0.3s; }
 }
 

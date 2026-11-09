@@ -14,10 +14,20 @@
 
   const bucket = cfg.bucket || 'lanterns';
 
+  // How the iPad pictures the exhibit (each lantern's shape and its spot in the picture) always comes from
+  // site/layout.js, so a layout change shows up without resetting the database. The projector boxes (proj)
+  // stay exactly as calibrated.
+  let layoutRows = null;
+  const fromLayout = id => {
+    if (!layoutRows && window.buildLanternRows) layoutRows = window.buildLanternRows();
+    return layoutRows && layoutRows.find(x => x.id === id);
+  };
+
   // Database row -> what the pages use
   function toLantern(r) {
+    const m = fromLayout(r.id);
     return {
-      id: r.id, shape: r.shape, color: r.color, wall: r.wall, proj: r.proj,
+      id: r.id, shape: m ? m.shape : r.shape, color: r.color, wall: m ? m.wall : r.wall, proj: r.proj,
       // null when the database predates supabase/migrate-main-lantern.sql (no interactive column yet)
       interactive: r.interactive == null ? null : !!r.interactive,
       imageUrl: r.image_path ? sb.storage.from(bucket).getPublicUrl(r.image_path).data.publicUrl : null
