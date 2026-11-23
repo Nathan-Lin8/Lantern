@@ -16,9 +16,11 @@
     // ----- Rear projection -----
     MIRROR_X: true,               // flip the output left/right so it reads correctly from the front.
                                   // Default only: the Flip button in calibration (C) changes it and S saves it to Supabase.
-    EDGE_INSET: 0.004,            // light stops this far inside every edge of each opening, as a fraction of the
-                                  // projected image height (0.004 = ~4 px at 1080p), the same for every lantern.
-                                  // Raise it if light spills onto the wooden frame.
+    EDGE_INSET: 0.002,            // light stops this far inside every edge of each opening, as a fraction of the
+                                  // projected image height (0.002 = ~2 px at 1080p), the same for every lantern.
+                                  // Default only: the Edge slider in calibration (C), or [ and ], changes it on
+                                  // this laptop. Raise it if light spills onto the wooden frame.
+    EDGE_INSET_MAX: 0.02,         // the slider's range
 
     // ----- Breathing: each lantern pulses on its own slow cycle, picked between these -----
     BREATH_MIN_S: 4,
@@ -122,6 +124,11 @@
   const pref = (key, fallback) => { try { const v = localStorage.getItem(key); return v == null ? fallback : v === '1'; } catch { return fallback; } };
   const savePref = (key, on) => { try { localStorage.setItem(key, on ? '1' : '0'); } catch { /* private mode */ } };
   let ambient = pref('lw-projector-ambient', true);
+  // Edge inset, adjustable in calibration and remembered on this laptop
+  let edgeInset = (() => {
+    try { const v = parseFloat(localStorage.getItem('lw-edge-inset')); return isFinite(v) ? v : CONFIG.EDGE_INSET; }
+    catch { return CONFIG.EDGE_INSET; }
+  })();
   const demo = new URL(location.href).searchParams.has('demo');
 
   const isMain = v => v.lantern.id === mainId;
@@ -281,7 +288,7 @@
   // EDGE_INSET: blacks out a band just inside every edge of the face (outer edges and hole edges alike), so the
   // light stops short of the wood. Done by stroking the outline in black, clipped to the face, after painting.
   function insetEdges(l, R) {
-    const i = canvas.height * CONFIG.EDGE_INSET;
+    const i = canvas.height * edgeInset;
     if (i <= 0) return;
     const F = facePath(l, R);
     ctx.save();
@@ -378,7 +385,7 @@
   function drawCalibration(v, R, main) {
     const sel = selected === v.lantern.id;
     ctx.save();
-    ctx.lineWidth = sel ? 6 : 3;
+    ctx.lineWidth = sel ? 2.5 : 1.25;                 // thin, so the real edge stays visible while lining up
     ctx.strokeStyle = sel ? '#f4a64a' : '#ffffff';
     ctx.stroke(facePath(v.lantern, R));
     ctx.setLineDash([8, 8]); ctx.lineWidth = 1; ctx.strokeRect(R.x, R.y, R.w, R.h); ctx.setLineDash([]);
@@ -445,6 +452,7 @@
     $('#adminForm').hidden = !on || unlocked;
     $('#calTools').hidden = !on || !unlocked;
     if (on && !unlocked) $('#adminCode').focus();
+    if (on) setEdge(edgeInset);                    // refresh the px readout for the current canvas size
     if (on && unlocked && dirtyLayout) status('Unsaved changes · press S to save');
     if (!on) { selected = null; helpTimer = setTimeout(() => help.classList.add('hide'), 2500); }
   }
@@ -553,6 +561,19 @@
   }
 
   $('#saveBtn').addEventListener('click', saveLayout);
+
+  // Edge: how far inside each opening the light stops (stored on this laptop only)
+  const edgeSlider = $('#edgeInset');
+  edgeSlider.max = CONFIG.EDGE_INSET_MAX;
+  function setEdge(v, announce = false) {
+    edgeInset = Math.max(0, Math.min(CONFIG.EDGE_INSET_MAX, Math.round(v * 10000) / 10000));
+    edgeSlider.value = edgeInset;
+    $('#edgeVal').textContent = `${Math.round(edgeInset * canvas.height)} px`;
+    try { localStorage.setItem('lw-edge-inset', String(edgeInset)); } catch { /* private mode */ }
+    if (announce) status(`Edge ${Math.round(edgeInset * canvas.height)} px (saved on this laptop)`);
+  }
+  edgeSlider.addEventListener('input', () => setEdge(+edgeSlider.value));
+  setEdge(edgeInset);
   $('#flipBtn').addEventListener('click', flip);
   // Cycle the panel around the corners so it never hides a lantern you're lining up
   const corners = ['', 'top', 'top right', 'right'];
@@ -602,6 +623,7 @@
     if (!calibrating || !unlocked) return;
     if (k === 's') { e.preventDefault(); saveLayout(); }
     if (k === 'x') flip();
+    if (e.key === '[' || e.key === ']') setEdge(edgeInset + (e.key === ']' ? 1 : -1) / canvas.height * (e.shiftKey ? 4 : 1), true);
     const v = selected != null && views.get(selected);
     if (v && e.key.startsWith('Arrow')) {
       e.preventDefault();

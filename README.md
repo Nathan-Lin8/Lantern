@@ -76,7 +76,9 @@ The home-screen icon opens straight to the wall.
 ## Changing the lanterns
 
 Edit `site/layout.js`. The five lanterns come from the laser-cut file (`laser cut.svg`): the main frame,
-the balloon and the four-petal flower inside it, the large egg ring and the small ring. Each entry:
+the balloon, the four-petal flower, the large egg ring and the small ring, each hung separately.
+The cut file lays them lengthwise on the board; `LANTERN_ROTATE` (default `-90`, counterclockwise) turns
+them to how they hang. Use `90` if they come out the wrong way round. Each entry:
 
 ```js
 { name: 'Large egg ring', shape: 'path', color: '#f2c35b', cx: 0.8342, cy: 0.3478, size: 0.2135, aspect: 0.8743,
@@ -85,11 +87,11 @@ the balloon and the four-petal flower inside it, the large egg ring and the smal
 
 | Field | Meaning |
 |---|---|
-| `path` | The lit area: the lantern's real inner openings as an SVG path (absolute `M`/`L`/`C`/`Z`), normalized to the lantern's bounding box (0 to 1). Filled even-odd, so a subpath inside another is a hole: the balloon and flower pieces are holes in the main frame, and the strips between their openings stay dark. |
+| `path` | The lit area: the lantern's real inner openings as an SVG path (absolute `M`/`L`/`C`/`Z`), normalized to the lantern's bounding box (0 to 1), in the cut file's orientation. Each opening is lit separately, so the strips between the balloon's and flower's openings stay dark. |
 | `interactive` | `true` for the one main lantern visitors customize. Leave it out on decorative lanterns. The database refuses colors and drawings for non-interactive lanterns. |
-| `cx`, `cy` | Center of the bounding box, 0 to 1 across and down the wall |
-| `size` | Bounding-box width as a fraction of the wall width |
-| `aspect` | Bounding-box width ÷ height |
+| `cx`, `cy` | Center of the lantern as it hangs, 0 to 1 across and down the wall |
+| `size` | Width as it hangs, as a fraction of the wall width |
+| `aspect` | Width ÷ height as it hangs |
 | `color` | Starting light color, `#rrggbb` or `off` |
 | `shape` | `path` when there's a path; otherwise a fallback outline: `capsule`, `circle`, `oval`, `oblong`, `rect` or `square` |
 
@@ -101,6 +103,8 @@ This replaces every lantern, so recalibrate afterward.
 ## Admin tools (projector page, `C`)
 
 - **Save positions** (`S`): stores calibration and the mirroring setting.
+- **Edge** slider (or `[` / `]`, 1 px at a time): how far inside each opening's edge the light stops.
+  Remembered on that laptop.
 - **Flip** (`X`): mirrors the output left/right. On for rear projection (default `MIRROR_X` in `projector.js`).
   While mirrored, stand in front of the lanterns to calibrate: moving the mouse right moves the shape right as seen from the front.
 - **Clear all drawings**: wipes every drawing, keeps colors and positions. Good between sessions.

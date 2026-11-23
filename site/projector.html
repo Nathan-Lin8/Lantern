@@ -36,6 +36,9 @@
     .overlay button.primary { background: #f4a64a; color: #2b1a06; border-color: transparent; font-weight: 600; }
     .overlay button.danger { border-color: #ef6b6b; color: #ffb3b3; }
     .overlay input { flex: 1; min-width: 160px; }
+    .overlay input[type=range] { padding: 0; accent-color: #f4a64a; background: none; border: none; }
+    .overlay .edge #edgeVal { min-width: 44px; font-variant-numeric: tabular-nums; }
+    .overlay .hint { margin-top: 4px; opacity: 0.7; font-size: 0.9em; }
     .overlay button:focus-visible, .overlay input:focus-visible { outline: 2px solid #f4a64a; outline-offset: 2px; }
     .status { color: #aaa0b5; min-height: 1.5em; }
     .mirror-state { color: #ffd29a; }
@@ -67,6 +70,11 @@
       <p>Stand in front of the lanterns. Drag each shape onto its lantern; drag the white corner square to resize.
         Arrow keys nudge the selected one (<kbd>Shift</kbd> for bigger steps).</p>
       <p style="margin-top:8px"><span class="mirror-state" id="mirrorState"></span></p>
+      <label class="row edge" style="margin-top:10px">Edge
+        <input type="range" id="edgeInset" min="0" max="0.02" step="any" aria-describedby="edgeHelp">
+        <span id="edgeVal"></span>
+      </label>
+      <p id="edgeHelp" class="hint">Dark band inside each opening's edge. <kbd>[</kbd> <kbd>]</kbd> fine-tune it 1 px at a time.</p>
       <div class="row" style="margin-top:10px">
         <button type="button" class="primary" id="saveBtn">Save positions (S)</button>
         <button type="button" id="flipBtn">Flip (X)</button>
@@ -81,12 +89,12 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
-  <script src="config.js?v=11094"></script>
-  <script src="layout.js?v=11094"></script>
-  <script src="lw.js?v=11094"></script>
-  <script src="ambient.js?v=11094"></script>
-  <script src="sound.js?v=11094"></script>
-  <script src="lantern-art.js?v=11094"></script>
-  <script src="projector.js?v=11094"></script>
+  <script src="config.js?v=11095"></script>
+  <script src="layout.js?v=11095"></script>
+  <script src="lw.js?v=11095"></script>
+  <script src="ambient.js?v=11095"></script>
+  <script src="sound.js?v=11095"></script>
+  <script src="lantern-art.js?v=11095"></script>
+  <script src="projector.js?v=11095"></script>
 </body>
 </html>
