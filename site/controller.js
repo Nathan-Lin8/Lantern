@@ -11,7 +11,7 @@
   const IDLE_MS = 90_000;          // editor returns home after this long untouched
   const AFTERGLOW_MS = 4200;       // "Look up" message after sending
   let W = 600, H = 800;            // current drawing space, set per lantern in openEditor()
-  let shape = 'rect';              // current lantern's shape
+  let shape = 'rect';              // current lantern's face: its real cut path (layout.js) or a shape name
 
   const INK = ['#1b1420', '#ffffff', '#d93a4a', '#f28a2e', '#f2c12e', '#2e9e5b', '#2f6fd6', '#8a4fd6'];
   const GLOW = [
@@ -186,7 +186,7 @@
       if (!a || !a.pending) continue;
       a.prev = a.pending; a.pending = null;
       a.t0 = performance.now();
-      a.burst = Ambient.burst(l.shape, l.color);
+      a.burst = Ambient.burst(Ambient.faceOf(l), l.color);
       eng.reveal(l.id, l.color);
     }
     loop();
@@ -194,10 +194,10 @@
 
   // Detailed lantern sprite for one surface, re-rendered only when something changes
   function spriteFor(holder, surface, l, color, img, w, h) {
-    const key = `${l.shape}|${color}|${Math.round(w)}x${Math.round(h)}`;
+    const key = `${Ambient.faceOf(l)}|${color}|${Math.round(w)}x${Math.round(h)}`;
     const c = holder.sprites[surface];
     if (c && c.key === key && c.img === img) return c.sprite;
-    holder.sprites[surface] = { key, img, sprite: LanternArt.sprite({ shape: l.shape, color, img }, w, h, dpr()) };
+    holder.sprites[surface] = { key, img, sprite: LanternArt.sprite({ shape: Ambient.faceOf(l), color, img }, w, h, dpr()) };
     return holder.sprites[surface].sprite;
   }
 
@@ -242,7 +242,7 @@
       if (Lt) {
         const glow = Lt.glow;
         if (a.prev) Lt.glow += Math.sin(Math.PI * T) * 0.7;                // bloom
-        Ambient.paintOverlay(g, l.shape, R, Lt, k, { drift: !isMain(l) && !a.img, flame: isMain(l) ? 0.4 : 1 });
+        Ambient.paintOverlay(g, Ambient.faceOf(l), R, Lt, k, { drift: !isMain(l) && !a.img, flame: isMain(l) ? 0.4 : 1 });
         Lt.glow = glow;
       }
       if (a.burst && !Ambient.drawBurst(g, a.burst, R.x, R.y, R.w, R.h, now)) a.burst = null;
@@ -276,7 +276,7 @@
     const e = Ambient.ease.outCubic(p), band = R.h * 0.35;
     const y = R.y - band + e * (R.h + 2 * band), a = 0.16 * Math.sin(Math.PI * p);
     g.save();
-    LanternArt.facePath(g, l.shape, R.x, R.y, R.w, R.h); g.clip();
+    Ambient.clipFace(g, Ambient.faceOf(l), R);
     g.globalCompositeOperation = 'lighter';
     const sg = g.createLinearGradient(0, y - band, 0, y + band);
     sg.addColorStop(0, 'rgba(255,236,200,0)'); sg.addColorStop(0.5, `rgba(255,236,200,${a})`); sg.addColorStop(1, 'rgba(255,236,200,0)');
@@ -346,7 +346,7 @@
     const a = 0.10 * breath + 0.025 * Math.sin(t * 6.1) * Math.sin(t * 2.3 + 0.4);
     if (a <= 0) return;
     g.save();
-    LanternArt.facePath(g, l.shape, R.x, R.y, R.w, R.h); g.clip();
+    Ambient.clipFace(g, Ambient.faceOf(l), R);
     g.globalCompositeOperation = 'lighter';
     g.translate(R.x + R.w / 2, R.y + R.h * 0.55); g.scale(R.w * 0.6, R.h * 0.55);
     const ig = g.createRadialGradient(0, 0, 0, 0, 0, 1);
@@ -421,7 +421,7 @@
 
   async function openEditor(id, m) {
     const l = lanterns.find(x => x.id === id);
-    current = id; mode = m; shape = l.shape;
+    current = id; mode = m; shape = Ambient.faceOf(l);
     sizeCanvases(l);
     ed.strokes = []; ed.base = null; ed.color = ed.startColor = l.color; ed.inkDirty = false;
     ed.brush.erase = false; ed.brush.stamp = null;
@@ -467,17 +467,19 @@
   }
   $('#back').addEventListener('click', goWall);
 
-  const facePath = ctx => LanternArt.facePath(ctx, shape, 0, 0, W, H);
+  // The lit area of the lantern over the whole drawing space (= the lantern's bounding box, like the PNG).
+  // Real cut shapes have holes (frame pieces inside the opening), so always fill / clip with the even-odd rule.
+  const faceNow = () => Ambient.face(shape, 0, 0, W, H);
+  const clipToFace = ctx => ctx.clip(faceNow(), Ambient.FILL_RULE);
 
   // Background = the light color, the way the projector will show it
   function renderBg() {
     bctx.clearRect(0, 0, W, H);
-    facePath(bctx);
     bctx.fillStyle = ed.color === 'off' ? '#2d2733' : ed.color;
-    bctx.fill();
+    bctx.fill(faceNow(), Ambient.FILL_RULE);
     frameGlow();
     // faint paper ribs
-    bctx.save(); facePath(bctx); bctx.clip();
+    bctx.save(); clipToFace(bctx);
     bctx.strokeStyle = 'rgba(0,0,0,.10)'; bctx.lineWidth = 2;
     for (let y = H / 9; y < H; y += H / 9) { bctx.beginPath(); bctx.moveTo(0, y); bctx.lineTo(W, y); bctx.stroke(); }
     bctx.restore();
@@ -557,7 +559,7 @@
   function renderInk() {
     ictx.save();
     ictx.clearRect(0, 0, W, H);
-    facePath(ictx); ictx.clip();
+    clipToFace(ictx);
     if (ed.base) ictx.drawImage(ed.base, 0, 0, W, H);
     drawText(ictx, ed.text);
     ed.strokes.forEach(s => drawStroke(ictx, s, 0));
@@ -616,7 +618,7 @@
     } else {
       cur = { color: ed.brush.color, size: ed.brush.size, erase: ed.brush.erase, points: [p] };
       ed.strokes.push(cur);
-      ictx.save(); facePath(ictx); ictx.clip(); drawStroke(ictx, cur, 0); ictx.restore();
+      ictx.save(); clipToFace(ictx); drawStroke(ictx, cur, 0); ictx.restore();
     }
   });
 
@@ -631,7 +633,7 @@
       const from = cur.points.length;
       const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
       (evs.length ? evs : [e]).forEach(ev => cur.points.push(pt(ev)));
-      ictx.save(); facePath(ictx); ictx.clip(); drawStroke(ictx, cur, from); ictx.restore();
+      ictx.save(); clipToFace(ictx); drawStroke(ictx, cur, from); ictx.restore();
     }
   });
 

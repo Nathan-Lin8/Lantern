@@ -28,6 +28,9 @@
     const m = fromLayout(r.id);
     return {
       id: r.id, shape: m ? m.shape : r.shape, color: r.color, wall: m ? m.wall : r.wall, proj: r.proj,
+      // the real cut shape (SVG path normalized to the box), saved by "Reset to layout.js"; layout.js fills in
+      // for a database that predates supabase/migrate-lantern-paths.sql
+      path: r.path || (m && m.path) || null,
       // null when the database predates supabase/migrate-main-lantern.sql (no interactive column yet)
       interactive: r.interactive == null ? null : !!r.interactive,
       imageUrl: r.image_path ? sb.storage.from(bucket).getPublicUrl(r.image_path).data.publicUrl : null

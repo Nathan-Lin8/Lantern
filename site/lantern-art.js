@@ -1,13 +1,14 @@
 // Shared lantern drawing for the iPad and projector pages: the detailed paper-lantern look.
 // Needs ambient.js (shape outlines, colors and the sparkle burst) loaded first.
 (() => {
-  const { ROUND, OB_END, rrect, halfWidth, facePath, rgb, mix, css, WHITE, BLACK } = window.Ambient;
+  const { ROUND, OB_END, rrect, halfWidth, facePath, face, clipFace, isPath, FILL_RULE, rgb, mix, css, WHITE, BLACK } = window.Ambient;
   const OFF_PAPER = [78, 70, 84];      // unlit paper
 
   // ---------- Detailed lantern (iPad) ----------
   // Room the detailed drawing needs around the lantern's box: glow at the sides, string above, tassel below
   function margins(shape, w, h) {
     const glow = Math.max(w, h) * 0.2;
+    if (isPath(shape)) return { x: glow, top: glow, bottom: glow };
     return { x: glow, top: Math.max(glow, h * 0.32), bottom: Math.max(glow, ROUND.has(shape) ? h * 0.38 : h * 0.08) };
   }
 
@@ -82,8 +83,10 @@
   }
 
   // Draws the full lantern with its body in the box (x, y, w, h). Extras spill into margins().
+  // shape = a shape name or a real cut path (Ambient.faceOf): cut shapes get no string, caps or tassel.
   function drawDetailed(ctx, { shape, color, img }, x, y, w, h) {
-    const lit = rgb(color), base = lit || OFF_PAPER, round = ROUND.has(shape);
+    const lit = rgb(color), base = lit || OFF_PAPER, round = ROUND.has(shape), cut = isPath(shape);
+    const F = face(shape, x, y, w, h);
     const cx = x + w / 2, cy = y + h / 2, m = Math.min(w, h);
     const mg = margins(shape, w, h), cap = capSize(shape, w, h);
     const thin = Math.max(0.75, m * 0.006);
@@ -101,14 +104,16 @@
 
     // Hanging string and hook
     const capTop = y - cap.h * 0.45, ring = m * 0.03;
+    if (!cut) {
     ctx.strokeStyle = 'rgba(18,12,8,0.9)'; ctx.lineWidth = Math.max(1, m * 0.012);
     ctx.beginPath(); ctx.moveTo(cx, capTop - ring * 2); ctx.lineTo(cx, y - mg.top); ctx.stroke();
     ctx.strokeStyle = '#a08c62'; ctx.lineWidth = Math.max(1, m * 0.014);
     ctx.beginPath(); ctx.arc(cx, capTop - ring, ring, 0, Math.PI * 2); ctx.stroke();
+    }
 
     // Paper body
     ctx.save();
-    facePath(ctx, shape, x, y, w, h); ctx.clip();
+    ctx.clip(F, FILL_RULE);
     ctx.save();                                       // glow: bright center, darker edges
     ctx.translate(cx, cy - h * 0.04); ctx.scale(w / 2, h / 2);
     const bg = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
@@ -147,8 +152,8 @@
     } else {
       ctx.strokeStyle = 'rgba(45,25,8,0.14)';
       for (let j = 1; j < 4; j++) { ctx.beginPath(); ctx.moveTo(x + w * j / 4, y); ctx.lineTo(x + w * j / 4, y + h); ctx.stroke(); }
-      ctx.strokeStyle = '#3a2414'; ctx.lineWidth = m * 0.08;   // wooden frame (half of it shows inside the clip)
-      facePath(ctx, shape, x, y, w, h); ctx.stroke();
+      ctx.strokeStyle = '#3a2414'; ctx.lineWidth = m * (cut ? 0.025 : 0.08);   // wooden frame (half of it shows inside the clip)
+      ctx.stroke(F);
     }
 
     // Roundness: darker toward the sides, plus a soft highlight
@@ -164,11 +169,13 @@
     ctx.restore();
 
     ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = Math.max(1, m * 0.008);
-    facePath(ctx, shape, x, y, w, h); ctx.stroke();
+    ctx.stroke(F);
 
     // Caps and tassel
-    drawCap(ctx, cx, capTop, cap.w, cap.h);
-    drawCap(ctx, cx, y + h - cap.h * 0.55, cap.w, cap.h);
+    if (!cut) {
+      drawCap(ctx, cx, capTop, cap.w, cap.h);
+      drawCap(ctx, cx, y + h - cap.h * 0.55, cap.w, cap.h);
+    }
     if (round) drawTassel(ctx, cx, y + h + cap.h * 0.45, m, h, lit);
     ctx.restore();
   }
@@ -187,5 +194,5 @@
 
   // Shape paths and the sparkle burst live in ambient.js; re-exported here for the editor
   const { burst, drawBurst, reduceMotion } = window.Ambient;
-  window.LanternArt = { ROUND, halfWidth, facePath, margins, drawDetailed, sprite, burst, drawBurst, reduceMotion };
+  window.LanternArt = { ROUND, halfWidth, facePath, face, clipFace, FILL_RULE, margins, drawDetailed, sprite, burst, drawBurst, reduceMotion };
 })();

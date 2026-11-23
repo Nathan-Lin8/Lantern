@@ -75,20 +75,25 @@ The home-screen icon opens straight to the wall.
 
 ## Changing the lanterns
 
-Edit `site/layout.js`. Each line is one lantern:
+Edit `site/layout.js`. The five lanterns come from the laser-cut file (`laser cut.svg`): the main frame,
+the balloon and the four-petal flower inside it, the large egg ring and the small ring. Each entry:
 
 ```js
-{ shape: 'capsule', interactive: true, cx: 0.50, cy: 0.50, size: 0.17, aspect: 0.5, color: '#fff1d6' }
+{ name: 'Large egg ring', shape: 'path', color: '#f2c35b', cx: 0.8342, cy: 0.3478, size: 0.2135, aspect: 0.8743,
+  svgBox: [...], path: 'M0.0178 0.6383 L... Z' }
 ```
 
 | Field | Meaning |
 |---|---|
-| `shape` | `capsule` (flat, tall, fully rounded ends: the main lantern), `circle`, `oval`, `oblong` (a tall classic paper lantern), `rect` or `square` |
+| `path` | The lit area: the lantern's real inner openings as an SVG path (absolute `M`/`L`/`C`/`Z`), normalized to the lantern's bounding box (0 to 1). Filled even-odd, so a subpath inside another is a hole: the balloon and flower pieces are holes in the main frame, and the strips between their openings stay dark. |
 | `interactive` | `true` for the one main lantern visitors customize. Leave it out on decorative lanterns. The database refuses colors and drawings for non-interactive lanterns. |
-| `cx`, `cy` | Center of the lantern, 0 to 1 across and down the wall |
-| `size` | Width as a fraction of the wall width |
-| `aspect` | Real width ÷ height: 1 for squares and circles, 0.75 for a tall 3:4 box, 1.33 for a wide one |
+| `cx`, `cy` | Center of the bounding box, 0 to 1 across and down the wall |
+| `size` | Bounding-box width as a fraction of the wall width |
+| `aspect` | Bounding-box width ÷ height |
 | `color` | Starting light color, `#rrggbb` or `off` |
+| `shape` | `path` when there's a path; otherwise a fallback outline: `capsule`, `circle`, `oval`, `oblong`, `rect` or `square` |
+
+The main lantern's drawing canvas and exported PNG match its bounding box; drawings only show in its lit area.
 
 Redeploy, then on the projector press `C` → **Reset to layout.js** (click twice to confirm).
 This replaces every lantern, so recalibrate afterward.
@@ -129,6 +134,7 @@ site/                  what Netlify publishes
   layout.js            the list of lanterns
 supabase/setup.sql     run once in the Supabase SQL Editor (fresh installs)
 supabase/migrate-main-lantern.sql   upgrade an existing database to the main-lantern setup
+supabase/migrate-lantern-paths.sql  then this: adds the `path` column for the real cut shapes
 netlify.toml           tells Netlify to publish site/
 TEAM-GUIDE.md          one-page guide for the showcase
 ```
@@ -136,7 +142,7 @@ TEAM-GUIDE.md          one-page guide for the showcase
 ## Tuning the projector
 
 Everything worth tuning on the real lanterns is in the `CONFIG` block at the top of `site/projector.js`:
-`MIRROR_X`, `EDGE_INSET` (how far inside each outline the light stops), breathing, the main lantern's
+`MIRROR_X`, `EDGE_INSET` (how far inside every edge of each opening the light stops), breathing, the main lantern's
 ambient strength, drift colors, echo timing. Keys on the projector: `F` fullscreen, `C` calibrate,
 `A` ambient on/off, `R` preview a reveal, `M` sound, `H` help. `projector.html?demo` previews
 layout.js locally without Supabase.

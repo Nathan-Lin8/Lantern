@@ -1,7 +1,8 @@
 // Projector display for REAR projection: the projector sits behind the lanterns and shines through them.
 //   - Everything outside the lantern shapes is pure black, always. Light is only ever painted inside each
-//     lantern's face (shrunk by EDGE_INSET so a slightly-off calibration doesn't spill onto the wall or
-//     into visitors' eyes). Nothing travels across the gaps.
+//     lantern's face: its real cut openings from layout.js (laser cut.svg), filled even-odd so frame pieces
+//     inside an opening stay dark, and pulled in by EDGE_INSET so a slightly-off calibration doesn't spill
+//     onto the wood or into visitors' eyes. Nothing travels across the gaps.
 //   - The output is mirrored (MIRROR_X) so text and drawings read correctly from the front.
 //   - One main lantern (interactive in layout.js) shows the visitor's color, drawing and text.
 //     The decorative lanterns breathe and drift through warm colors; when a visitor sends something they
@@ -15,8 +16,9 @@
     // ----- Rear projection -----
     MIRROR_X: true,               // flip the output left/right so it reads correctly from the front.
                                   // Default only: the Flip button in calibration (C) changes it and S saves it to Supabase.
-    EDGE_INSET: 0.03,             // light stops this far inside each lantern's outline (fraction of the lantern's
-                                  // smaller side, per edge). Raise it if light spills past the paper.
+    EDGE_INSET: 0.004,            // light stops this far inside every edge of each opening, as a fraction of the
+                                  // projected image height (0.004 = ~4 px at 1080p), the same for every lantern.
+                                  // Raise it if light spills onto the wooden frame.
 
     // ----- Breathing: each lantern pulses on its own slow cycle, picked between these -----
     BREATH_MIN_S: 4,
@@ -139,7 +141,7 @@
       if (type === 'echo' && CONFIG.ECHO_SPARKLE) {
         const v = views.get(d.id);
         if (v && !v.burst) {
-          v.burst = A.burst(v.lantern.shape, null, true);
+          v.burst = A.burst(A.faceOf(v.lantern), null, true);
           if (v.burst) v.burst.color = d.color;            // the visitor's color, as [r, g, b]
         }
       }
@@ -212,13 +214,13 @@
     if (loadSeq.get(l.id) !== seq) return;   // a newer update already arrived
 
     const current = views.get(l.id);
-    const changed = !current || imageChanged || current.lantern.color !== l.color || current.lantern.shape !== l.shape;
+    const changed = !current || imageChanged || current.lantern.color !== l.color || current.lantern.shape !== l.shape || current.lantern.path !== l.path;
     const live = current && changed;    // a real change, not the first load
     views.set(l.id, {
       lantern: l, img,
       prev: live ? { color: current.lantern.color, img: current.img } : current?.prev || null,
       t0: live || !current ? performance.now() : current.t0,
-      burst: live ? A.burst(l.shape, l.color) : current?.burst || null
+      burst: live ? A.burst(A.faceOf(l), l.color) : current?.burst || null
     });
     notice('');
     syncEngine();
@@ -271,22 +273,33 @@
   function rectPx(r) {
     return { x: r.x * canvas.width, y: r.y * canvas.height, w: r.w * canvas.width, h: r.h * canvas.height };
   }
-  // The lit area: the lantern's box pulled in by EDGE_INSET on every side
-  function lightRect(R) {
-    const i = Math.min(R.w, R.h) * CONFIG.EDGE_INSET;
-    return { x: R.x + i, y: R.y + i, w: Math.max(1, R.w - 2 * i), h: Math.max(1, R.h - 2 * i) };
-  }
+  // A lantern's face (its real cut openings) scaled into its calibrated box, as a Path2D. Fill / clip it with
+  // A.FILL_RULE ('evenodd') so pieces sitting inside an opening (the balloon and flower in the main frame) stay dark.
+  const facePath = (l, R) => A.face(A.faceOf(l), R.x, R.y, R.w, R.h);
+  const clipFace = (l, R) => ctx.clip(facePath(l, R), A.FILL_RULE);
 
-  const facePath = (shape, R) => A.facePath(ctx, shape, R.x, R.y, R.w, R.h);
+  // EDGE_INSET: blacks out a band just inside every edge of the face (outer edges and hole edges alike), so the
+  // light stops short of the wood. Done by stroking the outline in black, clipped to the face, after painting.
+  function insetEdges(l, R) {
+    const i = canvas.height * CONFIG.EDGE_INSET;
+    if (i <= 0) return;
+    const F = facePath(l, R);
+    ctx.save();
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    ctx.clip(F, A.FILL_RULE);
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 2 * i; ctx.lineJoin = 'round';
+    ctx.stroke(F);
+    ctx.restore();
+  }
 
   const fill = [0, 0, 0];
   // One lantern's light, clipped to its (inset) face. Lt = this frame's ambient light; bloom adds a brief
   // swell of light under the content. The drawing sits on top untouched so it always stays readable.
-  function paintLantern(holder, shape, color, img, R, alpha, Lt, bloom = 0, main = false) {
+  function paintLantern(holder, l, color, img, R, alpha, Lt, bloom = 0, main = false) {
     if (alpha <= 0) return;
     ctx.save();
     ctx.globalAlpha = alpha;
-    facePath(shape, R); ctx.clip();
+    clipFace(l, R);
     const lit = color && color !== 'off';
     if (lit) {
       let c = A.rgb(color);
@@ -323,7 +336,7 @@
     const lit = [...views.values()].filter(v => !isMain(v) && !v.burst && !v.prev && !v.img && A.rgb(v.lantern.color));
     if (!lit.length) return;
     const v = lit[Math.floor(Math.random() * lit.length)];
-    v.burst = A.burst(v.lantern.shape, v.lantern.color, true);
+    v.burst = A.burst(A.faceOf(v.lantern), v.lantern.color, true);
   }
 
   function draw(now, wall) {
@@ -336,7 +349,7 @@
     const still = calibrating || !ambient;
     if (!still && !A.reduceMotion.matches) idleSparkle(bgSec);
     for (const v of views.values()) {
-      const full = rectPx(v.lantern.proj), R = lightRect(full);
+      const R = rectPx(v.lantern.proj);
       const Lt = still ? null : eng.light(v.lantern.id, wall);
       const main = isMain(v);
       const T = v.prev ? Math.min(1, (now - v.t0) / CONFIG.REVEAL_BLOOM_MS) : 1;
@@ -345,16 +358,17 @@
       if (v.prev && T < 1) {
         bloom = still ? 0 : Math.sin(Math.PI * T) * 0.7;
         v.prev.prevColor = v.prev.color;
-        paintLantern(v.prev, v.lantern.shape, v.prev.color, v.prev.img, R, 1 - k, Lt, 0, main);
+        paintLantern(v.prev, v.lantern, v.prev.color, v.prev.img, R, 1 - k, Lt, 0, main);
       } else v.prev = null;
-      paintLantern(v, v.lantern.shape, v.lantern.color, v.img, R, k, Lt, bloom, main);
+      paintLantern(v, v.lantern, v.lantern.color, v.img, R, k, Lt, bloom, main);
       if (v.burst) {
         ctx.save();
-        facePath(v.lantern.shape, R); ctx.clip();        // sparkles stay inside the lantern too
+        clipFace(v.lantern, R);                           // sparkles stay inside the lantern too
         if (!A.drawBurst(ctx, v.burst, R.x, R.y, R.w, R.h, now, CONFIG.SPARKLE_SCALE)) v.burst = null;
         ctx.restore();
       }
-      if (calibrating && unlocked) drawCalibration(v, full, main);
+      insetEdges(v.lantern, R);
+      if (calibrating && unlocked) drawCalibration(v, R, main);
     }
     if (calibrating && unlocked && mirror && pointer) drawCursor(pointer);
   }
@@ -366,7 +380,7 @@
     ctx.save();
     ctx.lineWidth = sel ? 6 : 3;
     ctx.strokeStyle = sel ? '#f4a64a' : '#ffffff';
-    facePath(v.lantern.shape, R); ctx.stroke();
+    ctx.stroke(facePath(v.lantern, R));
     ctx.setLineDash([8, 8]); ctx.lineWidth = 1; ctx.strokeRect(R.x, R.y, R.w, R.h); ctx.setLineDash([]);
     ctx.fillStyle = sel ? '#f4a64a' : '#ffffff';
     ctx.fillRect(R.x + R.w - 24, R.y + R.h - 24, 24, 24);           // resize handle
@@ -506,7 +520,9 @@
       return true;
     } catch (err) {
       if (err.badCode) { LW.codes.clear('admin'); unlocked = false; setCalibrating(true); }
-      status(/save_positions|p_mirror|function/i.test(err.message)
+      status(/column "?path"?|lanterns_shape_check/i.test(err.message)
+        ? err.message + ' (Run supabase/migrate-lantern-paths.sql in Supabase first.)'
+        : /save_positions|p_mirror|function/i.test(err.message)
         ? err.message + ' (Run supabase/migrate-main-lantern.sql in Supabase first.)'
         : err.message);
       return false;
@@ -563,7 +579,7 @@
     if (!v) return;
     v.prev = { color: v.lantern.color, img: v.img };
     v.t0 = performance.now();
-    v.burst = A.burst(v.lantern.shape, v.lantern.color);
+    v.burst = A.burst(A.faceOf(v.lantern), v.lantern.color);
     eng.reveal(v.lantern.id, v.lantern.color);
   }
 

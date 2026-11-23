@@ -97,6 +97,44 @@
   }
   function facePath(ctx, shape, x, y, w, h) { ctx.beginPath(); addFace(ctx, shape, x, y, w, h); }
 
+  // ---------- Real cut shapes ----------
+  // A lantern's face is either a shape name (above) or an SVG path string from layout.js: the real openings
+  // from the laser-cut file, absolute M / L / C / Z commands normalized to the lantern's box (0..1).
+  // Always fill and clip faces with FILL_RULE: subpaths inside other subpaths are holes (dark frame pieces).
+  const FILL_RULE = 'evenodd';
+  const isPath = s => typeof s === 'string' && /^\s*M/i.test(s);
+  const faceOf = l => (l && l.path) || (l && l.shape) || 'rect';     // what to pass as `shape` for a lantern
+  const pathTokens = new Map();                                       // path string -> parsed tokens
+  const faceCache = new Map();                                        // path + box -> Path2D
+  function tokens(d) {
+    let t = pathTokens.get(d);
+    if (!t) {
+      t = (d.match(/[MLCZ]|-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/gi) || []).map(s => /[a-z]/i.test(s) && !/e/i.test(s) ? s.toUpperCase() : +s);
+      pathTokens.set(d, t);
+    }
+    return t;
+  }
+  // The face scaled into the box (x, y, w, h), as a Path2D. Use ctx.fill(p, FILL_RULE) / ctx.clip(p, FILL_RULE).
+  function face(shape, x, y, w, h) {
+    const key = `${x},${y},${w},${h}|${shape}`;
+    let p = faceCache.get(key);
+    if (p) return p;
+    if (isPath(shape)) {
+      // Scale the numbers into the box (they alternate x, y since every command is absolute) and let the
+      // browser parse the result: works on old iPads too (no Path2D.addPath / DOMMatrix needed)
+      let k = 0;
+      const out = tokens(shape).map(v => typeof v === 'string' ? v : (k++ % 2 ? y + v * h : x + v * w).toFixed(2));
+      p = new Path2D(out.join(' '));
+    } else {
+      p = new Path2D();
+      addFace(p, shape, x, y, w, h);
+    }
+    if (faceCache.size > 200) faceCache.clear();
+    faceCache.set(key, p);
+    return p;
+  }
+  const clipFace = (ctx, shape, R) => ctx.clip(face(shape, R.x, R.y, R.w, R.h), FILL_RULE);
+
   // ---------- Glow sprites ----------
   // Soft round glow with a pale core, cached per (rounded) color and scaled when drawn
   const dots = new Map();
@@ -190,7 +228,7 @@
   function paintOverlay(ctx, shape, R, Lt, alpha, { drift = false, flame = 1 } = {}) {
     if (alpha <= 0 || !Lt.base) return;
     ctx.save();
-    facePath(ctx, shape, R.x, R.y, R.w, R.h); ctx.clip();
+    clipFace(ctx, shape, R);
     if (drift && Lt.drift > 0) {                         // shift the paper's hue toward the drifting color
       ctx.globalCompositeOperation = 'color';
       ctx.globalAlpha = alpha * Lt.drift;
@@ -693,7 +731,7 @@
   window.Ambient = {
     TAU, clamp, lerp, rand, ease, noise, noise2, breath,
     WHITE, BLACK, WARM, rgb, mix, css, shade,
-    ROUND, OB_END, rrect, halfWidth, addFace, facePath,
+    ROUND, OB_END, rrect, halfWidth, addFace, facePath, FILL_RULE, isPath, faceOf, face, clipFace,
     dot, haze, starDot, reduceMotion, burst, drawBurst,
     paintOverlay, paintHalo, createEmbers, paintFloorGlow, createEngine, DEFAULTS
   };
