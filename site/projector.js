@@ -124,11 +124,17 @@
   const pref = (key, fallback) => { try { const v = localStorage.getItem(key); return v == null ? fallback : v === '1'; } catch { return fallback; } };
   const savePref = (key, on) => { try { localStorage.setItem(key, on ? '1' : '0'); } catch { /* private mode */ } };
   let ambient = pref('lw-projector-ambient', true);
-  // Edge inset, adjustable in calibration and remembered on this laptop
-  let edgeInset = (() => {
+  // Edge inset, adjustable per lantern in calibration and remembered on this laptop.
+  // edgeDefault applies to every lantern that hasn't been given its own value in edgeById.
+  let edgeDefault = (() => {
     try { const v = parseFloat(localStorage.getItem('lw-edge-inset')); return isFinite(v) ? v : CONFIG.EDGE_INSET; }
     catch { return CONFIG.EDGE_INSET; }
   })();
+  let edgeById = (() => {
+    try { const o = JSON.parse(localStorage.getItem('lw-edge-inset-by-id') || '{}'); return o && typeof o === 'object' ? o : {}; }
+    catch { return {}; }
+  })();
+  const edgeOf = id => (isFinite(edgeById[id]) ? edgeById[id] : edgeDefault);
   const demo = new URL(location.href).searchParams.has('demo');
 
   const isMain = v => v.lantern.id === mainId;
@@ -288,7 +294,7 @@
   // EDGE_INSET: blacks out a band just inside every edge of the face (outer edges and hole edges alike), so the
   // light stops short of the wood. Done by stroking the outline in black, clipped to the face, after painting.
   function insetEdges(l, R) {
-    const i = canvas.height * edgeInset;
+    const i = canvas.height * edgeOf(l.id);
     if (i <= 0) return;
     const F = facePath(l, R);
     ctx.save();
@@ -392,11 +398,16 @@
     ctx.fillStyle = sel ? '#f4a64a' : '#ffffff';
     ctx.fillRect(R.x + R.w - 24, R.y + R.h - 24, 24, 24);           // resize handle
     const label = main ? `${v.lantern.id} MAIN` : String(v.lantern.id);
+    const edgeLabel = `edge ${Math.round(edgeOf(v.lantern.id) * canvas.height)} px${isFinite(edgeById[v.lantern.id]) ? '' : ' (default)'}`;
     ctx.font = `700 ${Math.max(20, Math.min(R.w * 0.3, R.w / label.length * 1.6))}px system-ui, sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.lineWidth = 6; ctx.strokeStyle = '#000';
     ctx.strokeText(label, R.x + R.w / 2, R.y + R.h / 2);
     ctx.fillText(label, R.x + R.w / 2, R.y + R.h / 2);
+    const fs = Math.max(14, Math.min(R.w * 0.07, 28)), ey = R.y + R.h / 2 + parseFloat(ctx.font.match(/(\d+(?:\.\d+)?)px/)[1]) * 0.75;
+    ctx.font = `600 ${fs}px system-ui, sans-serif`; ctx.lineWidth = 4;
+    ctx.strokeText(edgeLabel, R.x + R.w / 2, ey);
+    ctx.fillText(edgeLabel, R.x + R.w / 2, ey);
     ctx.restore();
   }
 
@@ -452,9 +463,9 @@
     $('#adminForm').hidden = !on || unlocked;
     $('#calTools').hidden = !on || !unlocked;
     if (on && !unlocked) $('#adminCode').focus();
-    if (on) setEdge(edgeInset);                    // refresh the px readout for the current canvas size
+    if (on) showEdge();                            // refresh the px readout for the current canvas size
     if (on && unlocked && dirtyLayout) status('Unsaved changes · press S to save');
-    if (!on) { selected = null; helpTimer = setTimeout(() => help.classList.add('hide'), 2500); }
+    if (!on) { selected = null; showEdge(); helpTimer = setTimeout(() => help.classList.add('hide'), 2500); }
   }
 
   $('#adminForm').addEventListener('submit', async e => {
@@ -497,6 +508,7 @@
     pointer = p;
     const h = hit(p.x, p.y);
     selected = h ? h.v.lantern.id : null;
+    showEdge();
     if (h) {
       canvas.setPointerCapture(e.pointerId);
       dragInfo = { v: h.v, corner: h.corner, start: p, orig: { ...h.v.lantern.proj } };
@@ -562,18 +574,39 @@
 
   $('#saveBtn').addEventListener('click', saveLayout);
 
-  // Edge: how far inside each opening the light stops (stored on this laptop only)
-  const edgeSlider = $('#edgeInset');
+  // Edge: how far inside each opening the light stops (stored on this laptop only).
+  // Click a lantern to edit just that one; with nothing selected the slider sets the default for the rest.
+  const edgeSlider = $('#edgeInset'), edgeReset = $('#edgeReset');
   edgeSlider.max = CONFIG.EDGE_INSET_MAX;
+  const px = v => `${Math.round(v * canvas.height)} px`;
+  function saveEdges() {
+    try {
+      localStorage.setItem('lw-edge-inset', String(edgeDefault));
+      localStorage.setItem('lw-edge-inset-by-id', JSON.stringify(edgeById));
+    } catch { /* private mode */ }
+  }
+  function showEdge() {
+    const own = selected != null && isFinite(edgeById[selected]);
+    const v = selected != null ? edgeOf(selected) : edgeDefault;
+    edgeSlider.value = v;
+    $('#edgeVal').textContent = px(v);
+    $('#edgeWho').textContent = selected == null ? 'Edge · default (all lanterns not set on their own)'
+      : `Edge · lantern ${selected}${selected === mainId ? ' (main)' : ''}${own ? '' : ' · using default'}`;
+    edgeReset.hidden = !own;
+  }
   function setEdge(v, announce = false) {
-    edgeInset = Math.max(0, Math.min(CONFIG.EDGE_INSET_MAX, Math.round(v * 10000) / 10000));
-    edgeSlider.value = edgeInset;
-    $('#edgeVal').textContent = `${Math.round(edgeInset * canvas.height)} px`;
-    try { localStorage.setItem('lw-edge-inset', String(edgeInset)); } catch { /* private mode */ }
-    if (announce) status(`Edge ${Math.round(edgeInset * canvas.height)} px (saved on this laptop)`);
+    v = Math.max(0, Math.min(CONFIG.EDGE_INSET_MAX, Math.round(v * 100000) / 100000));
+    if (selected != null) edgeById[selected] = v; else edgeDefault = v;
+    saveEdges(); showEdge();
+    if (announce) status(`${selected != null ? 'Lantern ' + selected : 'Default'} edge ${px(v)} (saved on this laptop)`);
   }
   edgeSlider.addEventListener('input', () => setEdge(+edgeSlider.value));
-  setEdge(edgeInset);
+  edgeReset.addEventListener('click', () => {
+    if (selected == null) return;
+    delete edgeById[selected]; saveEdges(); showEdge();
+    status(`Lantern ${selected} uses the default edge again`);
+  });
+  showEdge();
   $('#flipBtn').addEventListener('click', flip);
   // Cycle the panel around the corners so it never hides a lantern you're lining up
   const corners = ['', 'top', 'top right', 'right'];
@@ -623,7 +656,10 @@
     if (!calibrating || !unlocked) return;
     if (k === 's') { e.preventDefault(); saveLayout(); }
     if (k === 'x') flip();
-    if (e.key === '[' || e.key === ']') setEdge(edgeInset + (e.key === ']' ? 1 : -1) / canvas.height * (e.shiftKey ? 4 : 1), true);
+    if (e.key === '[' || e.key === ']' || e.key === '{' || e.key === '}') {
+      const cur = selected != null ? edgeOf(selected) : edgeDefault, up = e.key === ']' || e.key === '}';
+      setEdge(cur + (up ? 1 : -1) / canvas.height * (e.shiftKey ? 4 : 1), true);
+    }
     const v = selected != null && views.get(selected);
     if (v && e.key.startsWith('Arrow')) {
       e.preventDefault();

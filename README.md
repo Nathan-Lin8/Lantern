@@ -104,7 +104,8 @@ This replaces every lantern, so recalibrate afterward.
 
 - **Save positions** (`S`): stores calibration and the mirroring setting.
 - **Edge** slider (or `[` / `]`, 1 px at a time): how far inside each opening's edge the light stops.
-  Remembered on that laptop.
+  Click a lantern to set just that one (**Use default** undoes it); with nothing selected it sets the
+  default for every lantern you haven't set. Each lantern's edge shows under its number. Remembered on that laptop.
 - **Flip** (`X`): mirrors the output left/right. On for rear projection (default `MIRROR_X` in `projector.js`).
   While mirrored, stand in front of the lanterns to calibrate: moving the mouse right moves the shape right as seen from the front.
 - **Clear all drawings**: wipes every drawing, keeps colors and positions. Good between sessions.

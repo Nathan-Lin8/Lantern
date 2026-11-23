@@ -70,11 +70,14 @@
       <p>Stand in front of the lanterns. Drag each shape onto its lantern; drag the white corner square to resize.
         Arrow keys nudge the selected one (<kbd>Shift</kbd> for bigger steps).</p>
       <p style="margin-top:8px"><span class="mirror-state" id="mirrorState"></span></p>
-      <label class="row edge" style="margin-top:10px">Edge
-        <input type="range" id="edgeInset" min="0" max="0.02" step="any" aria-describedby="edgeHelp">
+      <p id="edgeWho" style="margin-top:10px">Edge</p>
+      <div class="row edge">
+        <input type="range" id="edgeInset" min="0" max="0.02" step="any" aria-labelledby="edgeWho" aria-describedby="edgeHelp">
         <span id="edgeVal"></span>
-      </label>
-      <p id="edgeHelp" class="hint">Dark band inside each opening's edge. <kbd>[</kbd> <kbd>]</kbd> fine-tune it 1 px at a time.</p>
+        <button type="button" id="edgeReset" hidden>Use default</button>
+      </div>
+      <p id="edgeHelp" class="hint">Dark band inside each opening's edge. Click a lantern to set just that one.
+        <kbd>[</kbd> <kbd>]</kbd> fine-tune it 1 px at a time.</p>
       <div class="row" style="margin-top:10px">
         <button type="button" class="primary" id="saveBtn">Save positions (S)</button>
         <button type="button" id="flipBtn">Flip (X)</button>
@@ -89,12 +92,12 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
-  <script src="config.js?v=11096"></script>
-  <script src="layout.js?v=11096"></script>
-  <script src="lw.js?v=11096"></script>
-  <script src="ambient.js?v=11096"></script>
-  <script src="sound.js?v=11096"></script>
-  <script src="lantern-art.js?v=11096"></script>
-  <script src="projector.js?v=11096"></script>
+  <script src="config.js?v=11097"></script>
+  <script src="layout.js?v=11097"></script>
+  <script src="lw.js?v=11097"></script>
+  <script src="ambient.js?v=11097"></script>
+  <script src="sound.js?v=11097"></script>
+  <script src="lantern-art.js?v=11097"></script>
+  <script src="projector.js?v=11097"></script>
 </body>
 </html>
