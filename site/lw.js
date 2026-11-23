@@ -31,6 +31,7 @@
       // the real cut shape (SVG path normalized to the box), saved by "Reset to layout.js"; layout.js fills in
       // for a database that predates supabase/migrate-lantern-paths.sql
       path: r.path || (m && m.path) || null,
+      frame: (m && m.frame) || null,     // the wooden piece, for the iPad picture only (layout.js)
       // null when the database predates supabase/migrate-main-lantern.sql (no interactive column yet)
       interactive: r.interactive == null ? null : !!r.interactive,
       imageUrl: r.image_path ? sb.storage.from(bucket).getPublicUrl(r.image_path).data.publicUrl : null

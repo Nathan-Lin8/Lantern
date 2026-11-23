@@ -197,7 +197,7 @@
     const key = `${Ambient.faceOf(l)}|${color}|${Math.round(w)}x${Math.round(h)}`;
     const c = holder.sprites[surface];
     if (c && c.key === key && c.img === img) return c.sprite;
-    holder.sprites[surface] = { key, img, sprite: LanternArt.sprite({ shape: Ambient.faceOf(l), color, img }, w, h, dpr()) };
+    holder.sprites[surface] = { key, img, sprite: LanternArt.sprite({ shape: Ambient.faceOf(l), frame: l.frame, color, img }, w, h, dpr()) };
     return holder.sprites[surface].sprite;
   }
 

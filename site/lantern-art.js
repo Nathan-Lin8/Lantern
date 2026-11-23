@@ -6,8 +6,16 @@
 
   // ---------- Detailed lantern (iPad) ----------
   // Room the detailed drawing needs around the lantern's box: glow at the sides, string above, tassel below
-  function margins(shape, w, h) {
+  function margins(shape, w, h, frame) {
     const glow = Math.max(w, h) * 0.2;
+    if (frame) {                                      // room for the whole wooden piece, plus its glow and shadow
+      const b = extent(frame), pad = Math.max(w, h) * 0.1;
+      return {
+        x: Math.max(0, -b.u0, b.u1 - 1) * w + pad,
+        top: Math.max(0, -b.v0) * h + pad,
+        bottom: Math.max(0, b.v1 - 1) * h + pad * 1.3
+      };
+    }
     if (isPath(shape)) return { x: glow, top: glow, bottom: glow };
     return { x: glow, top: Math.max(glow, h * 0.32), bottom: Math.max(glow, ROUND.has(shape) ? h * 0.38 : h * 0.08) };
   }
@@ -82,9 +90,112 @@
     ctx.fillRect(cx - w0 * 0.6, y0 + h * 0.02, w0 * 1.2, Math.max(1, h * 0.018));
   }
 
+  // Bounding box of a normalized path (u = across, v = down), cached
+  const extents = new Map();
+  function extent(d) {
+    let b = extents.get(d);
+    if (!b) {
+      const n = (d.match(/-?(?:\d+\.?\d*|\.\d+)/g) || []).map(Number);
+      b = { u0: Infinity, u1: -Infinity, v0: Infinity, v1: -Infinity };
+      for (let i = 0; i + 1 < n.length; i += 2) {
+        b.u0 = Math.min(b.u0, n[i]); b.u1 = Math.max(b.u1, n[i]);
+        b.v0 = Math.min(b.v0, n[i + 1]); b.v1 = Math.max(b.v1, n[i + 1]);
+      }
+      extents.set(d, b);
+    }
+    return b;
+  }
+
+  // ---------- Laser-cut lantern (iPad): the wooden piece with paper glowing through its openings ----------
+  const WOOD = [[150, 101, 58], [112, 72, 38], [78, 48, 24]];   // light grain, body, dark
+  function drawCut(ctx, { shape, frame, color, img }, x, y, w, h) {
+    const lit = rgb(color), base = lit || OFF_PAPER;
+    const F = face(shape, x, y, w, h), B = face(frame, x, y, w, h), b = extent(frame);
+    const fx = x + b.u0 * w, fy = y + b.v0 * h, fw = (b.u1 - b.u0) * w, fh = (b.v1 - b.v0) * h;
+    const cx = x + w / 2, cy = y + h / 2, m = Math.min(fw, fh);
+    ctx.save();
+
+    // Warm light on the wall behind the piece
+    if (lit) {
+      ctx.save();
+      ctx.translate(fx + fw / 2, fy + fh / 2); ctx.scale(fw * 0.62, fh * 0.62);
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      g.addColorStop(0, css(lit, 0.32)); g.addColorStop(0.6, css(lit, 0.1)); g.addColorStop(1, css(lit, 0));
+      ctx.fillStyle = g; ctx.fillRect(-1, -1, 2, 2);
+      ctx.restore();
+    }
+
+    // Paper in the openings
+    ctx.save();
+    ctx.clip(F, FILL_RULE);
+    ctx.save();
+    ctx.translate(cx, cy); ctx.scale(w * 0.62, h * 0.62);
+    const pg = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+    if (lit) {
+      pg.addColorStop(0, css(mix(lit, WHITE, 0.55))); pg.addColorStop(0.5, css(mix(lit, WHITE, 0.2)));
+      pg.addColorStop(1, css(mix(lit, BLACK, 0.25)));
+    } else {
+      pg.addColorStop(0, css(mix(base, WHITE, 0.1))); pg.addColorStop(1, css(mix(base, BLACK, 0.4)));
+    }
+    ctx.fillStyle = pg; ctx.fillRect(-1.2, -1.2, 2.4, 2.4);
+    ctx.restore();
+    if (img) ctx.drawImage(img, x, y, w, h);          // drawing / text sits on the paper
+    ctx.fillStyle = paperPattern(ctx); ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = 'rgba(30,14,4,0.35)';             // the wood's shadow just inside each opening
+    ctx.lineWidth = Math.max(2, m * 0.03);
+    ctx.stroke(F);
+    ctx.restore();
+
+    // The wooden piece: drop shadow, then the board with grain
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = m * 0.05; ctx.shadowOffsetY = m * 0.018;
+    ctx.fillStyle = css(WOOD[2]); ctx.fill(B, FILL_RULE);
+    ctx.restore();
+    ctx.save();
+    ctx.clip(B, FILL_RULE);
+    const wg = ctx.createLinearGradient(fx, fy, fx + fw, fy + fh);
+    wg.addColorStop(0, css(WOOD[0])); wg.addColorStop(0.5, css(WOOD[1])); wg.addColorStop(1, css(WOOD[2]));
+    ctx.fillStyle = wg; ctx.fillRect(fx, fy, fw, fh);
+    // grain: long, gently wavy lines along the board (the board's length runs top to bottom once turned)
+    const seed = frame.length, lines = 34, amp = fw * 0.012;
+    ctx.lineWidth = Math.max(0.6, m * 0.0035);
+    for (let i = 0; i < lines; i++) {
+      const gx = fx + fw * (i + 0.5) / lines + Math.sin(i * 12.9898 + seed) * fw * 0.008;
+      ctx.strokeStyle = i % 3 ? 'rgba(60,34,14,0.22)' : 'rgba(205,160,110,0.16)';
+      ctx.beginPath();
+      for (let k = 0; k <= 20; k++) {
+        const t = k / 20, yy = fy + fh * t;
+        const xx = gx + Math.sin(t * 5.2 + i * 1.7 + seed) * amp + Math.sin(t * 13 + i) * amp * 0.3;
+        k ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy);
+      }
+      ctx.stroke();
+    }
+    if (lit) {                                         // the lantern's light catching the wood around the openings
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.translate(cx, cy); ctx.scale(w * 0.75, h * 0.75);
+      const lg = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      lg.addColorStop(0, css(lit, 0.22)); lg.addColorStop(1, css(lit, 0));
+      ctx.fillStyle = lg; ctx.fillRect(-1.5, -1.5, 3, 3);
+    }
+    ctx.restore();
+    // laser-darkened cut edges, with a faint highlight on the top edge of the board
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(38,18,6,0.9)'; ctx.lineWidth = Math.max(1, m * 0.006);
+    ctx.stroke(B);
+    ctx.save();
+    ctx.translate(0, Math.max(0.5, m * 0.003));
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = 'rgba(255,214,160,0.08)'; ctx.lineWidth = Math.max(0.75, m * 0.003);
+    ctx.stroke(B);
+    ctx.restore();
+    ctx.restore();
+  }
+
   // Draws the full lantern with its body in the box (x, y, w, h). Extras spill into margins().
   // shape = a shape name or a real cut path (Ambient.faceOf): cut shapes get no string, caps or tassel.
-  function drawDetailed(ctx, { shape, color, img }, x, y, w, h) {
+  function drawDetailed(ctx, L, x, y, w, h) {
+    if (L.frame && isPath(L.shape)) return drawCut(ctx, L, x, y, w, h);
+    const { shape, color, img } = L;
     const lit = rgb(color), base = lit || OFF_PAPER, round = ROUND.has(shape), cut = isPath(shape);
     const F = face(shape, x, y, w, h);
     const cx = x + w / 2, cy = y + h / 2, m = Math.min(w, h);
@@ -183,7 +294,7 @@
   // Pre-renders a detailed lantern whose body is w x h (in the target canvas's pixels / dpr).
   // Returns { c, mg, w, h, dpr }; copy c onto the screen with its top-left at (box x - mg.x, box y - mg.top).
   function sprite(L, w, h, dpr = 1) {
-    const mg = margins(L.shape, w, h), c = document.createElement('canvas');
+    const mg = margins(L.shape, w, h, L.frame), c = document.createElement('canvas');
     c.width = Math.max(1, Math.ceil((w + 2 * mg.x) * dpr));
     c.height = Math.max(1, Math.ceil((h + mg.top + mg.bottom) * dpr));
     const g = c.getContext('2d');
